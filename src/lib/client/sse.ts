@@ -1,32 +1,29 @@
-export async function streamNarration(
-  onMessage: (chunk: string) => void,
-  signal?: AbortSignal,
-) {
-  const res = await fetch("/api/narrate", {
-    method: "POST",
+export async function streamNarration(onMessage: (chunk: string) => void, signal?: AbortSignal) {
+  const res = await fetch('/api/narrate', {
+    method: 'POST',
     signal,
-  });
+  })
 
-  if (!res.body) throw new Error("No response body");
+  if (!res.body) throw new Error('No response body')
 
-  const reader = res.body.getReader();
-  const decoder = new TextDecoder();
+  const reader = res.body.getReader()
+  const decoder = new TextDecoder()
 
-  let buffer = "";
+  let buffer = ''
 
   while (true) {
-    const { value, done } = await reader.read();
-    if (done) break;
+    const { value, done } = await reader.read()
+    if (done) break
 
-    buffer += decoder.decode(value, { stream: true });
+    buffer += decoder.decode(value, { stream: true })
 
-    const events = buffer.split("\n\n");
-    buffer = events.pop() ?? "";
+    const events = buffer.split('\n\n')
+    buffer = events.pop() ?? ''
 
     for (const event of events) {
-      if (event.startsWith("data:")) {
-        const data = event.replace("data:", "").trim();
-        onMessage(data);
+      if (event.startsWith('data:')) {
+        const data = event.replace('data:', '').trim()
+        onMessage(data)
       }
     }
   }
