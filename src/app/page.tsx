@@ -1,6 +1,9 @@
+// This page is client-only because MapLibre + streaming UI rely on browser APIs.
+// Keeping it client-rendered avoids hydration mismatch issues in App Router.
 'use client'
 
-import MapClient from '@/components/MapClient'
+import { useState } from 'react'
+import MapClient, { MapApi } from '@/components/MapClient'
 import { useNarrationStore } from '@/lib/store/narrationStore'
 
 function Skeleton() {
@@ -17,29 +20,32 @@ function Skeleton() {
 
 export default function Home() {
   const { status, text, error, reset, cancelNarration } = useNarrationStore()
+  const [mapApi, setMapApi] = useState<MapApi | null>(null)
 
-  // Open drawer only when narration is active or finished
   const drawerOpen = status === 'streaming' || status === 'done' || !!error
 
   return (
     <main className="h-screen w-screen relative overflow-hidden">
-      {/* Map canvas */}
       <div className="absolute inset-0">
-        <MapClient />
+        <MapClient onReady={setMapApi} />
       </div>
 
-      {/* Header overlay */}
-      <div
-        className="absolute top-4 left-4 z-10 bg-white text-slate-900
-        rounded-xl border shadow-sm px-4 py-3 max-w-xs"
-      >
-        <div className="font-semibold">Map Guide</div>
+      <div className="absolute top-4 left-4 z-10 bg-white text-slate-900 rounded-xl border shadow-sm px-4 py-3 max-w-xs space-y-2">
+        <div className="font-semibold">Map Narrator</div>
         <div className="text-xs text-slate-600">
-          Left click selects. Right click to generate narration.
+          Left click selects. Right click (or long-press) to generate narration.
+        </div>
+
+        <div className="flex gap-2 pt-1">
+          <button
+            onClick={() => mapApi?.resetView()}
+            className="px-3 py-1.5 text-xs rounded border hover:bg-slate-50"
+          >
+            Reset view
+          </button>
         </div>
       </div>
 
-      {/* Drawer */}
       <aside
         className={[
           'absolute top-0 right-0 h-full w-full sm:w-[420px] z-20',
@@ -49,15 +55,13 @@ export default function Home() {
         ].join(' ')}
       >
         <div className="h-full flex flex-col text-slate-900">
-          {/* Drawer header */}
           <div className="p-4 border-b flex items-center justify-between">
             <div className="font-semibold">Narration</div>
             <div className="flex gap-2">
               <button
                 onClick={cancelNarration}
                 disabled={status !== 'streaming'}
-                className="px-3 py-1.5 rounded border text-sm
-                  disabled:opacity-50 disabled:cursor-not-allowed"
+                className="px-3 py-1.5 rounded border text-sm disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 Cancel
               </button>
@@ -67,7 +71,6 @@ export default function Home() {
             </div>
           </div>
 
-          {/* Drawer body */}
           <div className="p-4 overflow-auto whitespace-pre-wrap break-words flex-1 leading-relaxed">
             {error ? (
               <div className="text-red-600">{error}</div>
@@ -82,7 +85,6 @@ export default function Home() {
             )}
           </div>
 
-          {/* Drawer footer */}
           <div className="p-3 border-t text-xs text-slate-500">Status: {status}</div>
         </div>
       </aside>
