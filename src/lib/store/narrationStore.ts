@@ -1,8 +1,10 @@
 import { create } from 'zustand'
 
 type Status = 'idle' | 'streaming' | 'done' | 'error'
+import type { LatLon } from '@/lib/shared/types'
 
 type NarrationState = {
+  selected: LatLon | null
   status: Status
   text: string
   error: string | null
@@ -10,18 +12,30 @@ type NarrationState = {
   // Used to cancel an in-flight stream
   abortController: AbortController | null
 
+  selectPoint: (point: LatLon) => void
   startNarration: () => Promise<void>
   cancelNarration: () => void
   reset: () => void
 }
 
 export const useNarrationStore = create<NarrationState>((set, get) => ({
+  selected: null,
   status: 'idle',
   text: '',
   error: null,
   abortController: null,
 
+  selectPoint: (point) => {
+    set({ selected: point })
+  },
+
   startNarration: async () => {
+    const selected = get().selected
+    if (!selected) {
+      set({ status: 'error', error: 'Click a point on the map first.' })
+      return
+    }
+
     // Cancel any existing stream first
     get().cancelNarration()
 
@@ -33,7 +47,7 @@ export const useNarrationStore = create<NarrationState>((set, get) => ({
         method: 'POST',
         signal: ac.signal,
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({}), // coords later
+        body: JSON.stringify(selected), // coords later
       })
 
       if (!res.ok) throw new Error(`HTTP ${res.status}`)
