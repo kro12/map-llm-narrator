@@ -3,6 +3,7 @@ import { NextRequest } from 'next/server'
 import { httpDebug } from '@/lib/server/httpDebug'
 import { debug } from '@/lib/server/debug'
 import { reverseGeocode } from '@/lib/server/geoResolver'
+import { getPois } from '@/lib/server/poiResolver'
 
 type NarrateRequest = { lat: number; lon: number }
 
@@ -28,7 +29,9 @@ export async function POST(req: NextRequest) {
     return new Response('Missing lat/lon', { status: 400 })
   }
 
-  const { geo, cacheHit } = await reverseGeocode({ lat, lon })
+  const point = { lat, lon }
+
+  const [{ geo }, { pois }] = await Promise.all([reverseGeocode(point), getPois(point)])
 
   const encoder = new TextEncoder()
 
@@ -36,11 +39,34 @@ export async function POST(req: NextRequest) {
     async start(controller) {
       const send = (data: string) => controller.enqueue(encoder.encode(`data: ${data}\n\n`))
 
-      send(`Location: ${geo.shortName} ${cacheHit ? '(cached)' : ''}`)
-      await delay(400)
+      send(`Location: ${geo.shortName}`)
+      await delay(200)
 
-      send(`Starting narration for ${lat.toFixed(5)}, ${lon.toFixed(5)}...`)
-      await delay(500)
+      // we have real data?
+      const topAttractions = pois.attractions.slice(0, 3)
+      const topFood = pois.food.slice(0, 3)
+
+      if (topAttractions.length) {
+        send(
+          `Top attractions nearby: ${topAttractions
+            .map((p) => `${p.name} (${p.distanceKm.toFixed(1)}km)`)
+            .join(', ')}`,
+        )
+        await delay(200)
+      } else {
+        send('Top attractions nearby: (none found)')
+        await delay(200)
+      }
+
+      if (topFood.length) {
+        send(
+          `Food/drink nearby: ${topFood.map((p) => `${p.name} (${p.distanceKm.toFixed(1)}km)`).join(', ')}`,
+        )
+        await delay(200)
+      } else {
+        send('Food/drink nearby: (none found)')
+        await delay(200)
+      }
 
       send('This area is known for its rich history.')
       await delay(650)
