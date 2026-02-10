@@ -81,9 +81,9 @@ export async function POST(req: Request) {
         }
 
         try {
-          // Initial metadata
-          send(`Location: ${geo.shortName}`)
-          send('')
+          // // Initial metadata
+          // send(`Location: ${geo.shortName}`)
+          // send('')
 
           // Stream model output with light buffering
           let outBuf = ''
