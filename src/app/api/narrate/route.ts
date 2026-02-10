@@ -1,15 +1,27 @@
 import { NextRequest } from 'next/server'
+import { httpDebug } from '@/lib/server/httpDebug'
 
 type NarrateRequest = { lat: number; lon: number }
 
 export async function POST(req: NextRequest) {
-  // console.log('<cro>', req.url, await req.text()) // Log the raw request body for debugging
+  httpDebug('api/narrate', 'info', 'request', {
+    method: req.method,
+    url: req.url,
+    contentType: req.headers.get('content-type'),
+  })
   // Parse untrusted JSON input.
   // Use Partial<T> to model possibly-missing fields,
   // then validate lat/lon explicitly at runtime.
-  const payload = (await req.json().catch(() => ({}))) as Partial<NarrateRequest>
+  const payload = (await req.json().catch((err) => {
+    httpDebug('api/narrate', 'error', 'json parse failed', err)
+    return {}
+  })) as Partial<NarrateRequest>
+
+  httpDebug('api/narrate', 'info', 'payload', payload)
+
   const { lat, lon } = payload
   if (typeof lat !== 'number' || typeof lon !== 'number') {
+    httpDebug('api/narrate', 'warn', 'invalid coordinates', payload)
     return new Response('Missing lat/lon', { status: 400 })
   }
 
