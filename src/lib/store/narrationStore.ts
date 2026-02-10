@@ -1,7 +1,7 @@
 import { create } from 'zustand'
+import type { LatLon } from '@/lib/shared/types'
 
 type Status = 'idle' | 'streaming' | 'done' | 'error'
-import type { LatLon } from '@/lib/shared/types'
 
 type NarrationState = {
   selected: LatLon | null
@@ -16,6 +16,29 @@ type NarrationState = {
   startNarration: () => Promise<void>
   cancelNarration: () => void
   reset: () => void
+}
+
+/**
+ * Parse one SSE "event" block into its data payload.
+ *
+ * SSE format allows multiline messages, but each line must be prefixed with `data:`.
+ * Example event block:
+ *   data: line 1
+ *   data: line 2
+ *
+ * (blank line)
+ *
+ * We must strip `data:` from each line and join with `\n`.
+ */
+function parseSseEventData(eventBlock: string): string | null {
+  const dataLines = eventBlock
+    .split('\n')
+    .filter((l) => l.startsWith('data:'))
+    // Strip only the "data:" prefix (preserve whitespace/newlines for formatting)
+    .map((l) => l.replace(/^data:\s?/, ''))
+
+  if (dataLines.length === 0) return null
+  return dataLines.join('\n')
 }
 
 export const useNarrationStore = create<NarrationState>((set, get) => ({
@@ -47,7 +70,7 @@ export const useNarrationStore = create<NarrationState>((set, get) => ({
         method: 'POST',
         signal: ac.signal,
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(selected), // coords later
+        body: JSON.stringify(selected),
       })
 
       if (!res.ok) throw new Error(`HTTP ${res.status}`)
@@ -63,20 +86,23 @@ export const useNarrationStore = create<NarrationState>((set, get) => ({
 
         buffer += decoder.decode(value, { stream: true })
 
+        // SSE events are separated by a blank line
         const events = buffer.split('\n\n')
         buffer = events.pop() ?? ''
 
-        for (const event of events) {
-          if (!event.startsWith('data:')) continue
-          const data = event.replace('data:', '').trim()
+        for (const eventBlock of events) {
+          const data = parseSseEventData(eventBlock)
+          if (data == null) continue
 
-          if (data === 'END') {
+          // END sentinel may come alone, or with surrounding whitespace/newlines
+          if (data.trim() === 'END') {
             set({ status: 'done' })
-            get().cancelNarration() // clears abortController
+            get().cancelNarration()
             return
           }
 
-          set((s) => ({ text: s.text + (s.text ? ' ' : '') + data }))
+          // Append raw data (no trimming) so formatting/newlines are preserved
+          set((s) => ({ text: s.text + data }))
         }
       }
 

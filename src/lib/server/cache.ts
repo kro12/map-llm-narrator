@@ -1,6 +1,5 @@
 import { createClient, type RedisClientType } from 'redis'
 import { debug } from '@/lib/server/debug'
-import { httpDebug } from './httpDebug'
 
 let redis: RedisClientType | null = null
 
@@ -13,7 +12,6 @@ function now() {
 
 async function getRedis(): Promise<RedisClientType | null> {
   const url = process.env.REDIS_URL
-  console.debug('REDIS_URL:', url)
   if (!url) return null
 
   if (redis) return redis

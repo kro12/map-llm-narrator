@@ -1,11 +1,9 @@
 type DebugLevel = 'info' | 'warn' | 'error'
 
-function isDebugEnabled() {
-  return process.env.DEBUG_API === '1'
-}
+const DEBUG_API = process.env.DEBUG_API === '1' && process.env.NODE_ENV !== 'production'
 
 export function httpDebug(scope: string, level: DebugLevel, ...args: unknown[]) {
-  if (!isDebugEnabled()) return
+  if (!DEBUG_API) return
 
   const prefix = `[${scope}]`
 

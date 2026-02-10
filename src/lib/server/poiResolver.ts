@@ -15,6 +15,12 @@ type OverpassResponse = {
   elements: OverpassElement[]
 }
 
+export type PoisResult = {
+  attractions: Poi[]
+  food: Poi[]
+  errors: string[] // non-fatal diagnostics
+}
+
 const OVERPASS_ENDPOINTS = [
   'https://overpass-api.de/api/interpreter',
   'https://lz4.overpass-api.de/api/interpreter',
@@ -99,16 +105,36 @@ out tags center;
 `
 }
 
+async function fetchWithTimeout(url: string, init: RequestInit, ms: number) {
+  const ac = new AbortController()
+  const t = setTimeout(() => ac.abort(), ms)
+  try {
+    return await fetch(url, { ...init, signal: ac.signal })
+  } finally {
+    clearTimeout(t)
+  }
+}
+
 async function fetchOverpassWithFailover(query: string) {
   let lastErr: unknown = null
 
   for (const endpoint of OVERPASS_ENDPOINTS) {
     try {
-      const res = await fetch(endpoint, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/x-www-form-urlencoded;charset=UTF-8' },
-        body: new URLSearchParams({ data: query }).toString(),
-      })
+      const headers = {
+        'Content-Type': 'application/x-www-form-urlencoded;charset=UTF-8',
+        Accept: 'application/json',
+        'User-Agent': 'map-llm-narrator-demo/1.0 (github demo)',
+      }
+
+      const res = await fetchWithTimeout(
+        endpoint,
+        {
+          method: 'POST',
+          headers: { ...headers },
+          body: new URLSearchParams({ data: query }).toString(),
+        },
+        6000,
+      )
 
       if (!res.ok) throw new Error(`Overpass HTTP ${res.status} @ ${endpoint}`)
 
@@ -160,6 +186,20 @@ function elementsToPois(
   // Sort by distance
   deduped.sort((a, b) => a.distanceKm - b.distanceKm)
   return deduped
+}
+
+// api wrapper that returns empty lists on failure and captures error message for diagnostics
+export async function getPoisSafe(point: LatLon): Promise<{ pois: PoisResult; cacheHit: boolean }> {
+  try {
+    const { pois, cacheHit } = await getPois(point) // your existing function
+    return { pois: { ...pois, errors: [] }, cacheHit }
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : 'Unknown Overpass error'
+    return {
+      pois: { attractions: [], food: [], errors: [msg] },
+      cacheHit: false,
+    }
+  }
 }
 
 export async function getPois(point: LatLon) {

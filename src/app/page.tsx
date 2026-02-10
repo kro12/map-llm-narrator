@@ -37,7 +37,7 @@ export default function Home() {
             </button>
           </div>
 
-          <div className="border rounded p-4 min-h-[520px] whitespace-pre-wrap">
+          <div className="border rounded p-4 min-h-[520px] whitespace-pre-wrap break-words">
             {error ? `Error: ${error}` : text || 'Click a map point to begin.'}
           </div>
 
