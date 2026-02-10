@@ -1,5 +1,8 @@
+export const runtime = 'nodejs'
 import { NextRequest } from 'next/server'
 import { httpDebug } from '@/lib/server/httpDebug'
+import { debug } from '@/lib/server/debug'
+import { reverseGeocode } from '@/lib/server/geoResolver'
 
 type NarrateRequest = { lat: number; lon: number }
 
@@ -25,19 +28,22 @@ export async function POST(req: NextRequest) {
     return new Response('Missing lat/lon', { status: 400 })
   }
 
+  const { geo, cacheHit } = await reverseGeocode({ lat, lon })
+
   const encoder = new TextEncoder()
 
   const stream = new ReadableStream({
     async start(controller) {
-      const send = (data: string) => {
-        controller.enqueue(encoder.encode(`data: ${data}\n\n`))
-      }
+      const send = (data: string) => controller.enqueue(encoder.encode(`data: ${data}\n\n`))
 
-      send('Starting narration...')
+      send(`Location: ${geo.shortName} ${cacheHit ? '(cached)' : ''}`)
+      await delay(400)
+
+      send(`Starting narration for ${lat.toFixed(5)}, ${lon.toFixed(5)}...`)
       await delay(500)
 
       send('This area is known for its rich history.')
-      await delay(700)
+      await delay(650)
 
       send('Nearby landmarks attract visitors year-round.')
       await delay(600)
