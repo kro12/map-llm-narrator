@@ -31,7 +31,7 @@ export default function Home() {
       </div>
 
       <div className="absolute top-4 left-4 z-10 bg-white text-slate-900 rounded-xl border shadow-sm px-4 py-3 max-w-xs space-y-2">
-        <div className="font-semibold">Map Narrator</div>
+        <div className="font-semibold">Map Guide</div>
         <div className="text-xs text-slate-600">
           Left click selects. Right click (or long-press) to generate narration.
         </div>
@@ -56,7 +56,7 @@ export default function Home() {
       >
         <div className="h-full flex flex-col text-slate-900">
           <div className="p-4 border-b flex items-center justify-between">
-            <div className="font-semibold">Narration</div>
+            <div className="font-semibold">Place Info</div>
             <div className="flex gap-2">
               <button
                 onClick={cancelNarration}
