@@ -6,12 +6,20 @@
 [![MapLibre](https://img.shields.io/badge/Map-MapLibre-green)](https://maplibre.org/)
 [![LLM-Qwen](https://img.shields.io/badge/LLM-Qwen2.5--7b--instruct-purple)](https://ollama.com/)
 
-<img width="1536" height="1024" alt="image" src="https://github.com/user-attachments/assets/5520ed22-301b-4baf-a0e8-d67b9cc6f454" />
+<p align="center">
+  <img src="https://github.com/user-attachments/assets/5520ed22-301b-4baf-a0e8-d67b9cc6f454" alt="Map LLM Guide Demo" width="900"/>
+</p>
 
-An interactive, streaming, map-based AI guide that generates structured, location-aware narration using a self-hosted LLM and public geospatial APIs.
+<p align="center">
+  <b>An interactive, streaming, map-based AI guide</b><br/>
+  Structured, location-aware narration using a self-hosted LLM and public geospatial APIs.
+</p>
 
-Live demo:  
-https://map-llm-narrator.vercel.app/
+<p align="center">
+  <a href="https://map-llm-narrator.vercel.app/">
+    <strong>Live Demo</strong> ↗
+  </a>
+</p>
 
 ---
 
