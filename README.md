@@ -65,7 +65,7 @@ Frontend never communicates directly with the LLM gateway.
 
 - Next.js Route Handlers
 - Ollama (self-hosted)
-- Qwen2.5:3b-instruct
+- Qwen2.5:7b-instruct
 - Nominatim (reverse geocoding)
 - Overpass API (POI retrieval)
 - Wikipedia REST API (image summaries)
@@ -86,13 +86,6 @@ The LLM endpoint for this demo was provisioned and configured from scratch:
 - Firewall hardened
 - Daily model warm-up cron to reduce cold-start latency
 - Log rotation configured for operational hygiene
-
-The model originally used was `qwen2.5:7b-instruct`.  
-Due to CPU-only constraints and inference latency, the project evolved to use:
-
-`qwen2.5:3b-instruct`
-
-This tradeoff improved responsiveness while maintaining acceptable narrative quality.
 
 The environment is intentionally low-spec and GPU-free.  
 Slower inference is expected and acceptable for demonstration purposes.
@@ -219,11 +212,6 @@ WebSockets could provide:
 - Token-level streaming
 - Multi-user coordination
 
-### 7B vs 3B Model
-
-7B offered richer output but was too slow on CPU-only hardware.  
-3B model provided better UX responsiveness.
-
 ### Strict Prompt vs Output Sanitization
 
 Prompt-level enforcement chosen over heavy regex cleanup for determinism.
@@ -266,7 +254,7 @@ Early experimentation and prompt iteration were conducted in CodeSandbox before 
 1. Install dependencies
 2. Ensure Ollama is running
 3. Pull model:  
-   `ollama pull qwen2.5:3b-instruct`
+   `ollama pull qwen2.5:7b-instruct`
 4. Configure environment variables
 5. Run:  
    `npm run dev`

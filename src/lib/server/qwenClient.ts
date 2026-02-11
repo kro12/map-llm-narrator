@@ -39,7 +39,7 @@ function envNumber(name: string, fallback: number) {
 export async function* streamQwen(prompt: string, opts: QwenOptions = {}) {
   const url = opts.url ?? process.env.QWEN_URL
   const token = opts.token ?? process.env.TOKEN
-  const model = opts.model ?? process.env.QWEN_MODEL ?? 'qwen2.5:3b-instruct'
+  const model = opts.model ?? process.env.QWEN_MODEL ?? 'qwen2.5:7b-instruct'
   const temperature = opts.temperature ?? envNumber('QWEN_TEMPERATURE', 0.6)
   const numPredict = opts.numPredict ?? envNumber('QWEN_NUM_PREDICT', 900)
   const stop = opts.stop ?? ['\nEND']
