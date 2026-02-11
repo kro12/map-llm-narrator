@@ -4,7 +4,7 @@
 [![TypeScript](https://img.shields.io/badge/TypeScript-Strict-blue)](https://www.typescriptlang.org/)
 [![Zustand](https://img.shields.io/badge/State-Zustand-orange)](https://github.com/pmndrs/zustand)
 [![MapLibre](https://img.shields.io/badge/Map-MapLibre-green)](https://maplibre.org/)
-[![LLM-Qwen](https://img.shields.io/badge/LLM-Qwen2.5--3b--instruct-purple)](https://ollama.com/)
+[![LLM-Qwen](https://img.shields.io/badge/LLM-Qwen2.5--7b--instruct-purple)](https://ollama.com/)
 
 An interactive, streaming, map-based AI guide that generates structured, location-aware narration using a self-hosted LLM and public geospatial APIs.
 
