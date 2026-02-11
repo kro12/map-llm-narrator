@@ -51,7 +51,7 @@ body {
 
 /* ---------- MapLibre popup (compact confirmation card) ---------- */
 .maplibregl-popup-content {
-  padding: 10px 12px 10px;
+  padding: 12px 12px 10px; /* +2px top only */
   border-radius: 12px;
   font-family: inherit;
   color: #0f172a;
@@ -59,14 +59,14 @@ body {
 }
 
 .maplibregl-popup-close-button {
-  top: 4px;
-  right: 6px;
+  top: 6px;
+  right: 8px; /* move right a touch */
   width: 22px;
   height: 22px;
   border-radius: 8px;
   font-size: 16px;
   line-height: 22px;
-  color: #334155; /* slate-700 */
+  color: #334155;
 }
 
 .maplibregl-popup-close-button:hover {
@@ -89,7 +89,9 @@ body {
   font-weight: 600;
   font-size: 16px;
   line-height: 1.25;
+  letter-spacing: -0.01em;
   margin: 0;
+  padding-right: 20px; /* prevents overlap with close X */
 }
 
 .popup-subtitle {
