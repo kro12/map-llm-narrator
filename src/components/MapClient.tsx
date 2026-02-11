@@ -41,16 +41,16 @@ export default function MapClient({
       style: STYLE_URL,
       center: HOME_VIEW.center,
       zoom: HOME_VIEW.zoom,
+
+      /**
+       * Needed for reliable `canvas.toDataURL()` snapshots.
+       * MapLibre types expose this via canvasContextAttributes.
+       */
+      canvasContextAttributes: { preserveDrawingBuffer: true },
     })
 
     map.addControl(new maplibregl.NavigationControl(), 'top-right')
 
-    /**
-     * Keep all map-specific helpers inside this effect so:
-     * - ESLint doesn't require them as dependencies
-     * - their closures always reference the correct `map`
-     * - we avoid function identity changes across renders
-     */
     const clearPopup = () => {
       popupRef.current?.remove()
       popupRef.current = null
@@ -58,7 +58,6 @@ export default function MapClient({
 
     const ensureMarker = () => {
       if (markerRef.current) return markerRef.current
-
       const el = document.createElement('div')
       el.className = 'ml-marker'
       markerRef.current = new maplibregl.Marker({ element: el })
@@ -71,11 +70,20 @@ export default function MapClient({
       const marker = ensureMarker()
       marker.setLngLat([lng, lat])
 
-      // Retrigger pop animation
+      // retrigger pop animation
       const el = marker.getElement()
       el.classList.remove('ml-marker-pop')
-      void el.offsetWidth // force reflow
+      void el.offsetWidth
       el.classList.add('ml-marker-pop')
+    }
+
+    const capturePreviewBestEffort = () => {
+      try {
+        const dataUrl = map.getCanvas().toDataURL('image/png')
+        onPreview?.(dataUrl)
+      } catch {
+        // ignore snapshot errors (tainted canvas etc.)
+      }
     }
 
     const openConfirmPopup = (lng: number, lat: number) => {
@@ -83,23 +91,25 @@ export default function MapClient({
 
       const el = document.createElement('div')
       el.className = 'popup-card'
+
+      const isBusy = useNarrationStore.getState().status === 'streaming'
+
       el.innerHTML = `
         <div class="popup-title">Generate narration?</div>
         <div class="popup-subtitle">This may take some time.</div>
-        <button id="go" class="popup-btn">Generate</button>
+        <button id="go" class="popup-btn" ${isBusy ? 'disabled' : ''}>
+          ${isBusy ? 'Generating…' : 'Generate'}
+        </button>
       `
 
       el.querySelector('#go')?.addEventListener('click', () => {
+        // Re-check at click time (avoid stale state)
+        if (useNarrationStore.getState().status === 'streaming') return
+
         clearPopup()
+        capturePreviewBestEffort()
 
-        // Capture a quick map snapshot for the drawer (best-effort)
-        try {
-          const dataUrl = map.getCanvas().toDataURL('image/png')
-          onPreview?.(dataUrl)
-        } catch {
-          // Ignore snapshot errors (e.g. tainted canvas)
-        }
-
+        // startNarration already clears text/meta/error + bumps runId
         void startNarration()
       })
 
@@ -109,7 +119,6 @@ export default function MapClient({
         .addTo(map)
     }
 
-    // expose API to parent (header "Reset view", fit-to-POIs, etc.)
     onReady?.({
       resetView: () => map.flyTo({ center: HOME_VIEW.center, zoom: HOME_VIEW.zoom, duration: 700 }),
       fitToPois: (coords) => {
@@ -127,7 +136,6 @@ export default function MapClient({
       },
     })
 
-    // left click selects (no narration)
     const onClick = (e: maplibregl.MapMouseEvent) => {
       clearPopup()
       const { lng, lat } = e.lngLat
@@ -135,7 +143,6 @@ export default function MapClient({
       setMarker(lng, lat)
     }
 
-    // right click (desktop) opens confirm popup
     const onContextMenu = (e: maplibregl.MapMouseEvent) => {
       e.preventDefault()
       const { lng, lat } = e.lngLat

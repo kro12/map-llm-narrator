@@ -5,10 +5,10 @@
  * - This page uses effects for async fetch + streaming UI animation.
  * - The `react-hooks/set-state-in-effect` rule is too strict for this legitimate pattern.
  */
-
+/* eslint-disable react-hooks/set-state-in-effect */
 /* eslint-disable @next/next/no-img-element */
 
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import MapClient, { MapApi } from '@/components/MapClient'
 import { useNarrationStore } from '@/lib/store/narrationStore'
 
@@ -69,8 +69,9 @@ function ImageCard(props: {
   alt: string
   labelLeft: string
   loading?: boolean
+  noteRight?: string | null
 }) {
-  const { src, alt, labelLeft, loading } = props
+  const { src, alt, labelLeft, loading, noteRight } = props
 
   return (
     <div className="rounded-xl overflow-hidden border bg-slate-50">
@@ -84,7 +85,11 @@ function ImageCard(props: {
 
       <div className="px-3 py-2 text-xs text-slate-600 flex items-center justify-between">
         <span>{labelLeft}</span>
-        {loading ? <span className="opacity-60">Fetching photo…</span> : null}
+        {loading ? (
+          <span className="opacity-60">Fetching photo…</span>
+        ) : noteRight ? (
+          <span className="opacity-60">{noteRight}</span>
+        ) : null}
       </div>
     </div>
   )
@@ -93,18 +98,31 @@ function ImageCard(props: {
 export default function Home() {
   const { status, text, error, reset, cancelNarration } = useNarrationStore()
   const meta = useNarrationStore((s) => s.meta)
+  const runId = useNarrationStore((s) => s.runId)
 
   const [mapApi, setMapApi] = useState<MapApi | null>(null)
 
   const [previewSrc, setPreviewSrc] = useState<string | null>(null)
   const [wikiSrc, setWikiSrc] = useState<string | null>(null)
   const [wikiLoading, setWikiLoading] = useState(false)
+  const [wikiTried, setWikiTried] = useState(false)
 
   const drawerOpen = status === 'streaming' || status === 'done' || !!error
+
+  // Stable callbacks (reduces prop churn into MapClient)
+  const handleMapReady = useCallback((api: MapApi) => setMapApi(api), [])
+  const handlePreview = useCallback((dataUrl: string) => setPreviewSrc(dataUrl), [])
 
   // --- animated streaming text ---
   const [displayText, setDisplayText] = useState('')
   const rafRef = useRef<number | null>(null)
+
+  useEffect(() => {
+    // New narration run: clear wiki state (keep preview as it belongs to this run)
+    setWikiSrc(null)
+    setWikiLoading(false)
+    setWikiTried(false)
+  }, [runId])
 
   useEffect(() => {
     if (!text) {
@@ -131,22 +149,15 @@ export default function Home() {
     }
   }, [text])
 
-  /**
-   * --- Wikipedia image fetch ---
-   * The backend sends an ordered list of `wikiCandidates`.
-   * We respect that order here to:
-   *   We respect that ordering so UI labels stay accurate while image lookup
-   *   can fall back gracefully (broader places) without changing what we display.
-   */
   const wikiCandidates = useMemo(() => meta?.wikiCandidates ?? [], [meta?.wikiCandidates])
-  const wikiCandidatesKey = useMemo(() => wikiCandidates.join('|'), [wikiCandidates])
 
   useEffect(() => {
     if (!wikiCandidates.length) return
 
     let cancelled = false
+
     setWikiLoading(true)
-    setWikiSrc(null)
+    setWikiTried(true)
     ;(async () => {
       for (const q of wikiCandidates) {
         try {
@@ -168,15 +179,15 @@ export default function Home() {
     return () => {
       cancelled = true
     }
-
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [wikiCandidatesKey])
+  }, [wikiCandidates])
 
   const handleClose = () => {
     reset()
-    setPreviewSrc(null)
+    // keep previewSrc so you don't lose the fallback image immediately
+    // setPreviewSrc(null)
     setWikiSrc(null)
     setWikiLoading(false)
+    setWikiTried(false)
   }
 
   const blocks = useMemo(
@@ -190,11 +201,6 @@ export default function Home() {
 
   const placeNames = useMemo(() => extractPlaceNames(displayText), [displayText])
 
-  /**
-   * Location line shown to the user:
-   * - label is the most local name (e.g. "Mousehole")
-   * - context is broader (e.g. "Penzance • England • United Kingdom")
-   */
   const locationLine = useMemo(() => {
     const label = meta?.label ?? meta?.location
     if (!label) return null
@@ -203,15 +209,15 @@ export default function Home() {
 
   const imageSrc = wikiSrc ?? previewSrc ?? null
   const imageLabel = wikiSrc ? 'Wikipedia photo' : previewSrc ? 'Map preview' : 'Preview'
+  const imageNote =
+    !wikiLoading && wikiTried && !wikiSrc && previewSrc ? 'No wiki photo found' : null
 
   return (
     <main className="h-screen w-screen relative overflow-hidden">
-      {/* Map */}
       <div className="absolute inset-0">
-        <MapClient onReady={setMapApi} onPreview={setPreviewSrc} />
+        <MapClient onReady={handleMapReady} onPreview={handlePreview} />
       </div>
 
-      {/* Header overlay */}
       <div className="absolute top-4 left-4 z-10 bg-white text-slate-900 rounded-xl border shadow-sm px-4 py-3 max-w-xs space-y-2">
         <div className="font-semibold text-base">Map Guide</div>
         <div className="text-xs text-slate-600">
@@ -225,7 +231,6 @@ export default function Home() {
         </Stack>
       </div>
 
-      {/* Drawer */}
       <aside
         className={[
           'absolute top-0 right-0 h-full w-full sm:w-[420px] z-20',
@@ -253,21 +258,18 @@ export default function Home() {
           </div>
 
           <div className="p-4 overflow-auto break-words flex-1 leading-relaxed text-[0.95rem]">
-            {/* Sticky image while streaming + after text arrives */}
-            {status === 'streaming' || status === 'done' ? (
+            {(status === 'streaming' || status === 'done') && (
               <div className="sticky top-0 z-10 bg-white pb-3">
-                {locationLine ? (
-                  <div className="text-xs text-slate-500 mb-2">{locationLine}</div>
-                ) : null}
-
+                {locationLine && <div className="text-xs text-slate-500 mb-2">{locationLine}</div>}
                 <ImageCard
                   src={imageSrc}
                   alt={meta?.label ?? meta?.location ?? 'Selected location'}
                   labelLeft={imageLabel}
                   loading={wikiLoading}
+                  noteRight={imageNote}
                 />
               </div>
-            ) : null}
+            )}
 
             {error ? (
               <div className="text-red-600">{error}</div>
@@ -285,11 +287,11 @@ export default function Home() {
                     >
                       <div className="leading-relaxed">
                         {highlightPlaceNames(block, placeNames)}
-                        {status === 'streaming' && isLast ? (
+                        {status === 'streaming' && isLast && (
                           <span className="inline-block align-baseline opacity-70 caret-blink">
                             ▍
                           </span>
-                        ) : null}
+                        )}
                       </div>
                     </div>
                   )

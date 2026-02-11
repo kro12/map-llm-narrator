@@ -110,7 +110,12 @@ export async function POST(req: Request) {
             `META:${JSON.stringify({
               label: geo.label ?? geo.shortName,
               context: geo.context,
-              fineLabel: geo.fineLabel, // optional (nice to have)
+              fineLabel: geo.fineLabel,
+              displayName: geo.displayName,
+              region: geo.region,
+              country: geo.country,
+              lat,
+              lon,
               wikiCandidates: [
                 geo.label,
                 geo.fineLabel,
@@ -152,9 +157,7 @@ export async function POST(req: Request) {
            */
           console.error('[api/narrate] stream error:', e)
 
-          send(
-            'Sorry — narration could not be completed for this location. Please try another point.',
-          )
+          send('Sorry - task could not be completed for this location. Please try another point.')
           send('END')
           controller.close()
         }
