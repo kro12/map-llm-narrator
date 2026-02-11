@@ -30,7 +30,6 @@ export default function MapClient({
 
   const selectPoint = useNarrationStore((s) => s.selectPoint)
   const startNarration = useNarrationStore((s) => s.startNarration)
-  const status = useNarrationStore((s) => s.status)
 
   // init map + event wiring (run once)
   useEffect(() => {
@@ -219,19 +218,6 @@ export default function MapClient({
       mapRef.current = null
     }
   }, [onReady, onPreview, selectPoint, startNarration])
-
-  // recenter when streaming starts (accounts for drawer)
-  useEffect(() => {
-    const map = mapRef.current
-    if (!map) return
-    if (status !== 'streaming') return
-
-    const center = map.getCenter()
-    const pxShift = map.getCanvas().clientWidth * 0.25
-    const newCenter = map.unproject([map.project(center).x + pxShift, map.project(center).y])
-
-    map.easeTo({ center: newCenter, duration: 500 })
-  }, [status])
 
   return <div ref={containerRef} className="h-full w-full" />
 }
