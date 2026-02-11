@@ -12,7 +12,7 @@ type QwenOptions = {
   temperature?: number // QWEN_TEMPERATURE
   numPredict?: number // QWEN_NUM_PREDICT
   stop?: string[] // stop tokens
-  keepAlive?: string // optional, if your endpoint supports it
+  keepAlive?: string // optional (endpoint supports it?)
 }
 
 /**
@@ -33,7 +33,7 @@ function envNumber(name: string, fallback: number) {
 }
 
 /**
- * Streams text chunks from your Ollama-style `/generate` endpoint:
+ * Streams text chunks from Ollama-style `/generate` endpoint:
  * expects newline-delimited JSON with { response, done }.
  */
 export async function* streamQwen(prompt: string, opts: QwenOptions = {}) {

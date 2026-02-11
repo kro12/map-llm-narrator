@@ -16,7 +16,7 @@ function takeNamed(pois: Poi[], n: number) {
 }
 
 /**
- * Builds a strict "FACT PACKET" prompt modeled after your narrate.mjs POC.
+ * Builds a strict "FACT PACKET" prompt modeled after narrate.mjs POC.
  * The model is told to ONLY use names present in the packet.
  */
 export function buildFactPacketPrompt(args: { geo: GeoResult; attractions: Poi[]; food: Poi[] }) {
@@ -46,7 +46,7 @@ export function buildFactPacketPrompt(args: { geo: GeoResult; attractions: Poi[]
       ? `Places to visit candidates\n- ${topVisit.map((p) => line(p.name, p.distanceKm)).join('\n- ')}\n`
       : ''
 
-  // Keep the structure/rules very close to your POC
+  // Keep the structure/rules very close to POC
   const finishedPrompt =
     `DATA (facts only)\n` +
     `<<<\n` +

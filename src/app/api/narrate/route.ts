@@ -97,26 +97,27 @@ export async function POST(req: Request) {
 
         try {
           /**
-           * --- Send structured metadata first ---
+           * Send structured metadata to the client as a special SSE control message.
            *
-           * Instead of injecting "Location: ..." into the text stream,
-           * we send a META payload as JSON.
+           * We separate:
+           *  - label → what the UI should display (most local, human-friendly)
+           *  - context → optional richer location context
+           *  - wikiCandidates → ordered fallbacks for image lookup
            *
-           * The frontend can:
-           *  - store it separately
-           *  - use it to fetch images (Wikipedia, etc.)
-           *  - optionally render it
-           *
-           * This keeps narration content pure and presentation-agnostic.
+           * This prevents image-search logic from degrading UI accuracy.
            */
           send(
             `META:${JSON.stringify({
-              location: geo.shortName,
-              displayName: geo.displayName,
-              country: geo.country,
-              region: geo.region,
-              lat,
-              lon,
+              label: geo.label ?? geo.shortName,
+              context: geo.context,
+              fineLabel: geo.fineLabel, // optional (nice to have)
+              wikiCandidates: [
+                geo.label,
+                geo.fineLabel,
+                geo.shortName,
+                geo.region,
+                geo.country,
+              ].filter(Boolean),
             })}`,
           )
 

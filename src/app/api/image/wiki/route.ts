@@ -12,7 +12,7 @@ function candidateTitles(q: string) {
     new Set([
       base,
       base.split(',')[0]?.trim() ?? base, // "Town, Region, Country" -> "Town"
-      base.replace(/\s+ED\b/i, '').trim(), // your geo sometimes includes "ED"
+      base.replace(/\s+ED\b/i, '').trim(), // geo sometimes includes "ED"
     ]),
   ).filter(Boolean)
 }

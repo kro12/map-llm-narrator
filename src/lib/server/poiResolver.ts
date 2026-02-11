@@ -191,7 +191,7 @@ function elementsToPois(
 // api wrapper that returns empty lists on failure and captures error message for diagnostics
 export async function getPoisSafe(point: LatLon): Promise<{ pois: PoisResult; cacheHit: boolean }> {
   try {
-    const { pois, cacheHit } = await getPois(point) // your existing function
+    const { pois, cacheHit } = await getPois(point)
     return { pois: { ...pois, errors: [] }, cacheHit }
   } catch (e) {
     const msg = e instanceof Error ? e.message : 'Unknown Overpass error'

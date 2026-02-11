@@ -32,65 +32,7 @@ export default function MapClient({
   const startNarration = useNarrationStore((s) => s.startNarration)
   const status = useNarrationStore((s) => s.status)
 
-  const clearPopup = () => {
-    popupRef.current?.remove()
-    popupRef.current = null
-  }
-
-  const ensureMarker = (map: maplibregl.Map) => {
-    if (markerRef.current) return markerRef.current
-
-    const el = document.createElement('div')
-    el.className = 'ml-marker'
-    // simple pin style via CSS class (add CSS below)
-    markerRef.current = new maplibregl.Marker({ element: el })
-      .setLngLat(HOME_VIEW.center)
-      .addTo(map)
-    return markerRef.current
-  }
-
-  const setMarker = (lng: number, lat: number, map: maplibregl.Map) => {
-    const marker = ensureMarker(map)
-    marker.setLngLat([lng, lat])
-
-    // retrigger pop animation
-    const el = marker.getElement()
-    el.classList.remove('ml-marker-pop')
-    // force reflow
-    void el.offsetWidth
-    el.classList.add('ml-marker-pop')
-  }
-
-  const openConfirmPopup = (map: maplibregl.Map, lng: number, lat: number) => {
-    clearPopup()
-
-    const el = document.createElement('div')
-    el.className = 'popup-card'
-    el.innerHTML = `
-      <div class="popup-title">Generate narration?</div>
-      <div class="popup-subtitle">This may take some time.</div>
-      <button id="go" class="popup-btn">Generate</button>
-    `
-
-    el.querySelector('#go')?.addEventListener('click', () => {
-      clearPopup()
-      try {
-        const canvas = map.getCanvas()
-        const dataUrl = canvas.toDataURL('image/png')
-        onPreview?.(dataUrl)
-      } catch {
-        // ignore snapshot errors (tainted canvas etc.)
-      }
-      void startNarration()
-    })
-
-    popupRef.current = new maplibregl.Popup({ closeButton: true, closeOnClick: true })
-      .setLngLat([lng, lat])
-      .setDOMContent(el)
-      .addTo(map)
-  }
-
-  // init map
+  // init map + event wiring (run once)
   useEffect(() => {
     if (!containerRef.current || mapRef.current) return
 
@@ -103,7 +45,71 @@ export default function MapClient({
 
     map.addControl(new maplibregl.NavigationControl(), 'top-right')
 
-    // expose API to parent
+    /**
+     * Keep all map-specific helpers inside this effect so:
+     * - ESLint doesn't require them as dependencies
+     * - their closures always reference the correct `map`
+     * - we avoid function identity changes across renders
+     */
+    const clearPopup = () => {
+      popupRef.current?.remove()
+      popupRef.current = null
+    }
+
+    const ensureMarker = () => {
+      if (markerRef.current) return markerRef.current
+
+      const el = document.createElement('div')
+      el.className = 'ml-marker'
+      markerRef.current = new maplibregl.Marker({ element: el })
+        .setLngLat(HOME_VIEW.center)
+        .addTo(map)
+      return markerRef.current
+    }
+
+    const setMarker = (lng: number, lat: number) => {
+      const marker = ensureMarker()
+      marker.setLngLat([lng, lat])
+
+      // Retrigger pop animation
+      const el = marker.getElement()
+      el.classList.remove('ml-marker-pop')
+      void el.offsetWidth // force reflow
+      el.classList.add('ml-marker-pop')
+    }
+
+    const openConfirmPopup = (lng: number, lat: number) => {
+      clearPopup()
+
+      const el = document.createElement('div')
+      el.className = 'popup-card'
+      el.innerHTML = `
+        <div class="popup-title">Generate narration?</div>
+        <div class="popup-subtitle">This may take some time.</div>
+        <button id="go" class="popup-btn">Generate</button>
+      `
+
+      el.querySelector('#go')?.addEventListener('click', () => {
+        clearPopup()
+
+        // Capture a quick map snapshot for the drawer (best-effort)
+        try {
+          const dataUrl = map.getCanvas().toDataURL('image/png')
+          onPreview?.(dataUrl)
+        } catch {
+          // Ignore snapshot errors (e.g. tainted canvas)
+        }
+
+        void startNarration()
+      })
+
+      popupRef.current = new maplibregl.Popup({ closeButton: true, closeOnClick: true })
+        .setLngLat([lng, lat])
+        .setDOMContent(el)
+        .addTo(map)
+    }
+
+    // expose API to parent (header "Reset view", fit-to-POIs, etc.)
     onReady?.({
       resetView: () => map.flyTo({ center: HOME_VIEW.center, zoom: HOME_VIEW.zoom, duration: 700 }),
       fitToPois: (coords) => {
@@ -121,22 +127,25 @@ export default function MapClient({
       },
     })
 
-    // tap/click selects
-    map.on('click', (e) => {
+    // left click selects (no narration)
+    const onClick = (e: maplibregl.MapMouseEvent) => {
       clearPopup()
       const { lng, lat } = e.lngLat
       selectPoint({ lon: lng, lat })
-      setMarker(lng, lat, map)
-    })
+      setMarker(lng, lat)
+    }
 
-    // right click confirm (desktop)
-    map.on('contextmenu', (e) => {
+    // right click (desktop) opens confirm popup
+    const onContextMenu = (e: maplibregl.MapMouseEvent) => {
       e.preventDefault()
       const { lng, lat } = e.lngLat
       selectPoint({ lon: lng, lat })
-      setMarker(lng, lat, map)
-      openConfirmPopup(map, lng, lat)
-    })
+      setMarker(lng, lat)
+      openConfirmPopup(lng, lat)
+    }
+
+    map.on('click', onClick)
+    map.on('contextmenu', onContextMenu)
 
     // long-press confirm (mobile)
     const canvas = map.getCanvasContainer()
@@ -164,8 +173,8 @@ export default function MapClient({
         const lat = lngLat.lat
 
         selectPoint({ lon: lng, lat })
-        setMarker(lng, lat, map)
-        openConfirmPopup(map, lng, lat)
+        setMarker(lng, lat)
+        openConfirmPopup(lng, lat)
         clearPress()
       }, 600)
     }
@@ -194,12 +203,15 @@ export default function MapClient({
       canvas.removeEventListener('touchend', onTouchEnd)
       canvas.removeEventListener('touchcancel', onTouchCancel)
 
+      map.off('click', onClick)
+      map.off('contextmenu', onContextMenu)
+
       clearPopup()
       markerRef.current?.remove()
       map.remove()
       mapRef.current = null
     }
-  }, [onReady, selectPoint, startNarration])
+  }, [onReady, onPreview, selectPoint, startNarration])
 
   // recenter when streaming starts (accounts for drawer)
   useEffect(() => {

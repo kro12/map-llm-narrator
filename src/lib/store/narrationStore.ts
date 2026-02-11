@@ -13,6 +13,12 @@ type Status = 'idle' | 'streaming' | 'done' | 'error'
  * - avoid parsing the text stream for control data
  */
 export type NarrationMeta = {
+  // UI label/context (new)
+  label?: string
+  context?: string
+  wikiCandidates?: string[]
+
+  // existing fields (keep for backward compat)
   location?: string
   displayName?: string
   country?: string

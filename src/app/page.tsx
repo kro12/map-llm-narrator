@@ -5,7 +5,7 @@
  * - This page uses effects for async fetch + streaming UI animation.
  * - The `react-hooks/set-state-in-effect` rule is too strict for this legitimate pattern.
  */
-/* eslint-disable react-hooks/set-state-in-effect */
+
 /* eslint-disable @next/next/no-img-element */
 
 import { useEffect, useMemo, useRef, useState } from 'react'
@@ -90,43 +90,6 @@ function ImageCard(props: {
   )
 }
 
-/**
- * Build a small set of candidate Wikipedia queries from META.
- * Rationale:
- * - Full Nominatim-style display names often have no direct Wikipedia page.
- * - Town/county/region is far more likely to return an image.
- */
-function buildWikiCandidates(
-  meta: {
-    location?: string
-    displayName?: string
-    region?: string
-    country?: string
-  } | null,
-): string[] {
-  if (!meta) return []
-
-  const out: string[] = []
-
-  // 1) Short location first (often "County Kerry", "Dublin", etc.)
-  if (meta.location) out.push(meta.location)
-
-  // 2) If displayName exists, try first segment ("New Ross Bypass, ... " -> "New Ross Bypass")
-  if (meta.displayName) {
-    const first = meta.displayName.split(',')[0]?.trim()
-    if (first) out.push(first)
-  }
-
-  // 3) Region/county
-  if (meta.region) out.push(meta.region)
-
-  // 4) Country as a last resort (better than nothing for a demo)
-  if (meta.country) out.push(meta.country)
-
-  // De-dupe + remove empties
-  return Array.from(new Set(out.map((s) => s.trim()).filter(Boolean)))
-}
-
 export default function Home() {
   const { status, text, error, reset, cancelNarration } = useNarrationStore()
   const meta = useNarrationStore((s) => s.meta)
@@ -144,7 +107,6 @@ export default function Home() {
   const rafRef = useRef<number | null>(null)
 
   useEffect(() => {
-    // Reset visible text when a new run starts
     if (!text) {
       setDisplayText('')
       return
@@ -169,8 +131,15 @@ export default function Home() {
     }
   }, [text])
 
-  // --- Wikipedia image fetch: try multiple candidates until we get an image ---
-  const wikiCandidates = useMemo(() => buildWikiCandidates(meta), [meta])
+  /**
+   * --- Wikipedia image fetch ---
+   * The backend sends an ordered list of `wikiCandidates`.
+   * We respect that order here to:
+   *   We respect that ordering so UI labels stay accurate while image lookup
+   *   can fall back gracefully (broader places) without changing what we display.
+   */
+  const wikiCandidates = useMemo(() => meta?.wikiCandidates ?? [], [meta?.wikiCandidates])
+  const wikiCandidatesKey = useMemo(() => wikiCandidates.join('|'), [wikiCandidates])
 
   useEffect(() => {
     if (!wikiCandidates.length) return
@@ -184,27 +153,24 @@ export default function Home() {
           const res = await fetch(`/api/image/wiki?q=${encodeURIComponent(q)}`)
           const j = await res.json()
           if (cancelled) return
-
           if (j?.imageUrl) {
             setWikiSrc(j.imageUrl)
             setWikiLoading(false)
             return
           }
         } catch {
-          // ignore and try next candidate
+          // try next
         }
       }
-
-      if (!cancelled) {
-        setWikiSrc(null)
-        setWikiLoading(false)
-      }
+      if (!cancelled) setWikiLoading(false)
     })()
 
     return () => {
       cancelled = true
     }
-  }, [wikiCandidates.join('|')])
+
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [wikiCandidatesKey])
 
   const handleClose = () => {
     reset()
@@ -222,15 +188,18 @@ export default function Home() {
     [displayText],
   )
 
-  // Keep this simple: animate every block render (looks fine for streaming)
-  // If you want “animate once only”, we can add a stable ID list later.
   const placeNames = useMemo(() => extractPlaceNames(displayText), [displayText])
 
-  // Location line (optional, but you asked to include it)
+  /**
+   * Location line shown to the user:
+   * - label is the most local name (e.g. "Mousehole")
+   * - context is broader (e.g. "Penzance • England • United Kingdom")
+   */
   const locationLine = useMemo(() => {
-    const parts = [meta?.location, meta?.region, meta?.country].filter(Boolean)
-    return parts.length ? parts.join(' • ') : null
-  }, [meta?.location, meta?.region, meta?.country])
+    const label = meta?.label ?? meta?.location
+    if (!label) return null
+    return meta?.context ? `${label} • ${meta.context}` : label
+  }, [meta])
 
   const imageSrc = wikiSrc ?? previewSrc ?? null
   const imageLabel = wikiSrc ? 'Wikipedia photo' : previewSrc ? 'Map preview' : 'Preview'
@@ -293,7 +262,7 @@ export default function Home() {
 
                 <ImageCard
                   src={imageSrc}
-                  alt={meta?.location ?? 'Selected location'}
+                  alt={meta?.label ?? meta?.location ?? 'Selected location'}
                   labelLeft={imageLabel}
                   loading={wikiLoading}
                 />
