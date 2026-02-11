@@ -16,7 +16,13 @@ export type MapApi = {
   fitToPois: (coords: Array<{ lon: number; lat: number }>) => void
 }
 
-export default function MapClient({ onReady }: { onReady?: (api: MapApi) => void }) {
+export default function MapClient({
+  onReady,
+  onPreview,
+}: {
+  onReady?: (api: MapApi) => void
+  onPreview?: (dataUrl: string) => void
+}) {
   const containerRef = useRef<HTMLDivElement | null>(null)
   const mapRef = useRef<maplibregl.Map | null>(null)
   const markerRef = useRef<maplibregl.Marker | null>(null)
@@ -68,6 +74,13 @@ export default function MapClient({ onReady }: { onReady?: (api: MapApi) => void
 
     el.querySelector('#go')?.addEventListener('click', () => {
       clearPopup()
+      try {
+        const canvas = map.getCanvas()
+        const dataUrl = canvas.toDataURL('image/png')
+        onPreview?.(dataUrl)
+      } catch {
+        // ignore snapshot errors (tainted canvas etc.)
+      }
       void startNarration()
     })
 

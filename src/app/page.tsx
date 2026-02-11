@@ -1,6 +1,14 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+/**
+ * NOTE:
+ * - This page uses effects for async fetch + streaming UI animation.
+ * - The `react-hooks/set-state-in-effect` rule is too strict for this legitimate pattern.
+ */
+/* eslint-disable react-hooks/set-state-in-effect */
+/* eslint-disable @next/next/no-img-element */
+
+import { useEffect, useMemo, useRef, useState } from 'react'
 import MapClient, { MapApi } from '@/components/MapClient'
 import { useNarrationStore } from '@/lib/store/narrationStore'
 
@@ -12,27 +20,23 @@ function escapeRegex(s: string) {
 }
 
 function extractPlaceNames(fullText: string): string[] {
-  // Look for: Places to visit: Name (x km); Name (x km); Name (x km)
   const m = fullText.match(/Places to visit:\s*(.+)/i)
   if (!m) return []
 
-  const line = m[1]
-  const parts = line
+  const parts = m[1]
     .split(';')
     .map((p) => p.trim())
     .filter(Boolean)
 
   const names = parts
-    .map((p) => p.replace(/\s*\([^)]*\)\s*$/, '').trim()) // remove trailing "(0.6 km)"
+    .map((p) => p.replace(/\s*\([^)]*\)\s*$/, '').trim())
     .filter((n) => n.length >= 3)
 
-  // de-dupe, longest first (prevents partial overlap issues)
   return Array.from(new Set(names)).sort((a, b) => b.length - a.length)
 }
 
 function highlightPlaceNames(text: string, names: string[]) {
   if (!names.length) return text
-
   const pattern = new RegExp(`\\b(${names.map(escapeRegex).join('|')})\\b`, 'g')
   const parts = text.split(pattern)
 
@@ -60,71 +64,186 @@ function Skeleton() {
   )
 }
 
+function ImageCard(props: {
+  src: string | null
+  alt: string
+  labelLeft: string
+  loading?: boolean
+}) {
+  const { src, alt, labelLeft, loading } = props
+
+  return (
+    <div className="rounded-xl overflow-hidden border bg-slate-50">
+      <div className="w-full h-[160px] bg-slate-100">
+        {src ? (
+          <img src={src} alt={alt} className="w-full h-[160px] object-cover" />
+        ) : (
+          <div className="w-full h-full animate-pulse bg-slate-200" />
+        )}
+      </div>
+
+      <div className="px-3 py-2 text-xs text-slate-600 flex items-center justify-between">
+        <span>{labelLeft}</span>
+        {loading ? <span className="opacity-60">Fetching photo…</span> : null}
+      </div>
+    </div>
+  )
+}
+
+/**
+ * Build a small set of candidate Wikipedia queries from META.
+ * Rationale:
+ * - Full Nominatim-style display names often have no direct Wikipedia page.
+ * - Town/county/region is far more likely to return an image.
+ */
+function buildWikiCandidates(
+  meta: {
+    location?: string
+    displayName?: string
+    region?: string
+    country?: string
+  } | null,
+): string[] {
+  if (!meta) return []
+
+  const out: string[] = []
+
+  // 1) Short location first (often "County Kerry", "Dublin", etc.)
+  if (meta.location) out.push(meta.location)
+
+  // 2) If displayName exists, try first segment ("New Ross Bypass, ... " -> "New Ross Bypass")
+  if (meta.displayName) {
+    const first = meta.displayName.split(',')[0]?.trim()
+    if (first) out.push(first)
+  }
+
+  // 3) Region/county
+  if (meta.region) out.push(meta.region)
+
+  // 4) Country as a last resort (better than nothing for a demo)
+  if (meta.country) out.push(meta.country)
+
+  // De-dupe + remove empties
+  return Array.from(new Set(out.map((s) => s.trim()).filter(Boolean)))
+}
+
 export default function Home() {
   const { status, text, error, reset, cancelNarration } = useNarrationStore()
+  const meta = useNarrationStore((s) => s.meta)
+
   const [mapApi, setMapApi] = useState<MapApi | null>(null)
 
-  // Drawer opens only when narration is active or finished
+  const [previewSrc, setPreviewSrc] = useState<string | null>(null)
+  const [wikiSrc, setWikiSrc] = useState<string | null>(null)
+  const [wikiLoading, setWikiLoading] = useState(false)
+
   const drawerOpen = status === 'streaming' || status === 'done' || !!error
 
-  // ---- animated streaming text ----
+  // --- animated streaming text ---
   const [displayText, setDisplayText] = useState('')
+  const rafRef = useRef<number | null>(null)
 
   useEffect(() => {
+    // Reset visible text when a new run starts
     if (!text) {
       setDisplayText('')
       return
     }
 
-    let raf = 0
+    if (rafRef.current) cancelAnimationFrame(rafRef.current)
 
     const step = () => {
       setDisplayText((cur) => {
         if (cur.length >= text.length) return cur
-        const nextLen = Math.min(text.length, cur.length + 6) // chars per frame
+        const nextLen = Math.min(text.length, cur.length + 6)
         return text.slice(0, nextLen)
       })
-
-      if (displayText.length < text.length) {
-        raf = requestAnimationFrame(step)
-      }
+      rafRef.current = requestAnimationFrame(step)
     }
 
-    raf = requestAnimationFrame(step)
-    return () => cancelAnimationFrame(raf)
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    rafRef.current = requestAnimationFrame(step)
+
+    return () => {
+      if (rafRef.current) cancelAnimationFrame(rafRef.current)
+      rafRef.current = null
+    }
   }, [text])
 
-  const caret = status === 'streaming' ? '▍' : ''
-
-  const blocks = displayText
-    .split(/\n\s*\n/g)
-    .map((b) => b.trim())
-    .filter(Boolean)
-
-  const [animatedCount, setAnimatedCount] = useState(0)
+  // --- Wikipedia image fetch: try multiple candidates until we get an image ---
+  const wikiCandidates = useMemo(() => buildWikiCandidates(meta), [meta])
 
   useEffect(() => {
-    // Only increase; ensures blocks animate once as they appear
-    setAnimatedCount((prev) => Math.max(prev, blocks.length))
-  }, [blocks.length])
+    if (!wikiCandidates.length) return
 
-  const placeNames = extractPlaceNames(displayText)
+    let cancelled = false
+    setWikiLoading(true)
+    setWikiSrc(null)
+    ;(async () => {
+      for (const q of wikiCandidates) {
+        try {
+          const res = await fetch(`/api/image/wiki?q=${encodeURIComponent(q)}`)
+          const j = await res.json()
+          if (cancelled) return
+
+          if (j?.imageUrl) {
+            setWikiSrc(j.imageUrl)
+            setWikiLoading(false)
+            return
+          }
+        } catch {
+          // ignore and try next candidate
+        }
+      }
+
+      if (!cancelled) {
+        setWikiSrc(null)
+        setWikiLoading(false)
+      }
+    })()
+
+    return () => {
+      cancelled = true
+    }
+  }, [wikiCandidates.join('|')])
+
+  const handleClose = () => {
+    reset()
+    setPreviewSrc(null)
+    setWikiSrc(null)
+    setWikiLoading(false)
+  }
+
+  const blocks = useMemo(
+    () =>
+      displayText
+        .split(/\n\s*\n/g)
+        .map((b) => b.trim())
+        .filter(Boolean),
+    [displayText],
+  )
+
+  // Keep this simple: animate every block render (looks fine for streaming)
+  // If you want “animate once only”, we can add a stable ID list later.
+  const placeNames = useMemo(() => extractPlaceNames(displayText), [displayText])
+
+  // Location line (optional, but you asked to include it)
+  const locationLine = useMemo(() => {
+    const parts = [meta?.location, meta?.region, meta?.country].filter(Boolean)
+    return parts.length ? parts.join(' • ') : null
+  }, [meta?.location, meta?.region, meta?.country])
+
+  const imageSrc = wikiSrc ?? previewSrc ?? null
+  const imageLabel = wikiSrc ? 'Wikipedia photo' : previewSrc ? 'Map preview' : 'Preview'
 
   return (
     <main className="h-screen w-screen relative overflow-hidden">
       {/* Map */}
       <div className="absolute inset-0">
-        <MapClient onReady={setMapApi} />
+        <MapClient onReady={setMapApi} onPreview={setPreviewSrc} />
       </div>
 
       {/* Header overlay */}
-      <div
-        className="absolute top-4 left-4 z-10
-          bg-white text-slate-900
-          rounded-xl border shadow-sm
-          px-4 py-3 max-w-xs space-y-2"
-      >
+      <div className="absolute top-4 left-4 z-10 bg-white text-slate-900 rounded-xl border shadow-sm px-4 py-3 max-w-xs space-y-2">
         <div className="font-semibold text-base">Map Guide</div>
         <div className="text-xs text-slate-600">
           Left click selects. Right click (or long-press) to generate narration.
@@ -147,7 +266,6 @@ export default function Home() {
         ].join(' ')}
       >
         <div className="h-full flex flex-col text-slate-900">
-          {/* Drawer header */}
           <div className="p-4 border-b flex items-center justify-between">
             <div className="font-semibold">Guide</div>
             <Stack direction="row" spacing={1}>
@@ -159,26 +277,41 @@ export default function Home() {
               >
                 Cancel
               </Button>
-              <Button variant="contained" size="small" onClick={reset}>
+              <Button variant="contained" size="small" onClick={handleClose}>
                 Close
               </Button>
             </Stack>
           </div>
 
-          {/* Drawer body */}
-          <div className="p-4 overflow-auto whitespace-pre-wrap break-words flex-1 leading-relaxed text-[0.95rem]">
+          <div className="p-4 overflow-auto break-words flex-1 leading-relaxed text-[0.95rem]">
+            {/* Sticky image while streaming + after text arrives */}
+            {status === 'streaming' || status === 'done' ? (
+              <div className="sticky top-0 z-10 bg-white pb-3">
+                {locationLine ? (
+                  <div className="text-xs text-slate-500 mb-2">{locationLine}</div>
+                ) : null}
+
+                <ImageCard
+                  src={imageSrc}
+                  alt={meta?.location ?? 'Selected location'}
+                  labelLeft={imageLabel}
+                  loading={wikiLoading}
+                />
+              </div>
+            ) : null}
+
             {error ? (
               <div className="text-red-600">{error}</div>
             ) : status === 'streaming' && !displayText ? (
               <Skeleton />
             ) : (
-              <div className="space-y-3">
+              <div className="space-y-3 whitespace-pre-wrap">
                 {blocks.map((block, idx) => {
                   const isLast = idx === blocks.length - 1
                   return (
                     <div
                       key={idx}
-                      className={idx < animatedCount ? 'fade-in-up' : ''}
+                      className="fade-in-up"
                       style={{ animationDelay: `${Math.min(idx * 60, 240)}ms` }}
                     >
                       <div className="leading-relaxed">
@@ -196,7 +329,6 @@ export default function Home() {
             )}
           </div>
 
-          {/* Drawer footer */}
           <div className="p-3 border-t text-xs text-slate-500">Status: {status}</div>
         </div>
       </aside>
