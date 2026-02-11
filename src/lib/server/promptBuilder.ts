@@ -16,7 +16,7 @@ function takeNamed(pois: Poi[], n: number) {
 }
 
 /**
- * Builds a strict "FACT PACKET" prompt modeled after narrate.mjs POC.
+ * Builds a strict "FACT PACKET" prompt modeled after your narrate.mjs POC.
  * The model is told to ONLY use names present in the packet.
  */
 export function buildFactPacketPrompt(args: { geo: GeoResult; attractions: Poi[]; food: Poi[] }) {
@@ -34,19 +34,19 @@ export function buildFactPacketPrompt(args: { geo: GeoResult; attractions: Poi[]
   const attractionsBlock =
     topVisit.length > 0
       ? `Attractions\n- ${topVisit.map((p) => line(p.name, p.distanceKm)).join('\n- ')}\n`
-      : `Attractions\n- None found\n`
+      : `Attractions\n- None found in packet\n`
 
   const foodBlock =
     topFood.length > 0
       ? `Food & drink\n- ${topFood.map((p) => line(p.name, p.distanceKm)).join('\n- ')}\n`
-      : `Food & drink\n- None found\n`
+      : `Food & drink\n- None found in packet\n`
 
   const visitLine =
     topVisit.length === 3
       ? `Places to visit candidates\n- ${topVisit.map((p) => line(p.name, p.distanceKm)).join('\n- ')}\n`
       : ''
 
-  // Keep the structure/rules very close to POC
+  // Keep the structure/rules very close to your POC
   const finishedPrompt =
     `DATA (facts only)\n` +
     `<<<\n` +
@@ -69,30 +69,23 @@ export function buildFactPacketPrompt(args: { geo: GeoResult; attractions: Poi[]
     `- If "Food & drink" has items, you must mention at least 1 of those names in the narrative OR Food/Drink bullet.\n` +
     `- IMPORTANT: Include normal spaces between words and use line breaks exactly as requested below.\n` +
     `- Do NOT mention the words "DATA", "RULES", or "OUTPUT".\n` +
-    `- Do NOT repeat or describe the prompt/instructions.\n` +
+    `- Do NOT repeat or describe the prompt/instructions; only produce the requested output format.\n` +
     `\n` +
     `OUTPUT\n` +
     `Write 110–150 words total.\n` +
     `Use plain text only (no markdown, no asterisks).\n` +
     `\n` +
-    `Formatting requirements (strict):\n` +
-    `1) Start immediately with normal prose (no headings, no labels).\n` +
-    `2) Write two paragraphs separated by a single blank line.\n` +
-    `3) The second paragraph must include at least 2 distances exactly as written in the DATA section.\n` +
-    `4) After the two paragraphs, output exactly one line beginning with:\n` +
-    `   Places to visit: Name (distance); Name (distance); Name (distance)\n` +
-    `5) Then output exactly three lines in this exact format:\n` +
-    `   Walk: <generic, NO place names>\n` +
-    `   Culture: <generic, NO place names>\n` +
-    `   Food/Drink: <include 1–2 names if present else "None found">\n` +
+    `Structure requirements:\n` +
+    `- First paragraph: 2–3 sentences.\n` +
+    `- Second paragraph: 2–3 sentences and must include at least 2 distances exactly as written in the data.\n` +
+    `- Then output one line starting with exactly: "Places to visit:" followed by 3 items in the form Name (distance), separated by semicolons.\n` +
+    `- Then output exactly 3 bullet lines:\n` +
+    `  - Walk: <generic, NO place names>\n` +
+    `  - Culture: <generic, NO place names>\n` +
+    `  - Food/Drink: <include 1–2 names if present else "None found in packet">\n` +
     `\n` +
-    `CRITICAL:\n` +
-    `- Do NOT include labels such as "First paragraph", "Second paragraph", "Paragraph 1", or similar.\n` +
-    `- Do NOT include bullet symbols or extra prefixes.\n` +
-    `- Do NOT include any additional headings.\n` +
-    `- Output must match the required structure exactly.\n` +
+    `Do NOT include headings such as "Paragraph 1", "Paragraph 2", or "Bullets".\n` +
     `END`
-
   httpDebug('promptBuilder', 'info', { finishedPrompt })
   return finishedPrompt
 }
