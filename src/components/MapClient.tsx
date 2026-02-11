@@ -94,7 +94,7 @@ export default function MapClient({
       const isBusy = useNarrationStore.getState().status === 'streaming'
 
       el.innerHTML = `
-        <div class="popup-title">Generate narration?</div>
+        <div class="popup-title">Generate guide?</div>
         <div class="popup-subtitle">This may take some time.</div>
         <button id="go" class="popup-btn" ${isBusy ? 'disabled' : ''}>
           ${isBusy ? 'Generating…' : 'Generate'}

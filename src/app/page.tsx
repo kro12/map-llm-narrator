@@ -221,7 +221,7 @@ export default function Home() {
       <div className="absolute top-4 left-4 z-10 bg-white text-slate-900 rounded-xl border shadow-sm px-4 py-3 max-w-xs space-y-2">
         <div className="font-semibold text-base">Map Guide</div>
         <div className="text-xs text-slate-600">
-          Left click selects. Right click (or long-press) to generate narration.
+          Left click selects. Right click (or long-press) to generate location guide.
         </div>
 
         <Stack direction="row" spacing={1}>
