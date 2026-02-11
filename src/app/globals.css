@@ -2,14 +2,7 @@
 
 :root {
   --background: #ffffff;
-  --foreground: #171717;
-}
-
-@theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
+  --foreground: #0f172a; /* slate-900 */
 }
 
 @media (prefers-color-scheme: dark) {
@@ -19,13 +12,18 @@
   }
 }
 
+/* Ensure full-height layout for map-first UI */
+html,
 body {
   height: 100%;
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
 }
 
+body {
+  background: var(--background);
+  color: var(--foreground);
+}
+
+/* ---------- Map marker polish ---------- */
 .ml-marker {
   width: 22px;
   height: 22px;
@@ -49,4 +47,108 @@ body {
     transform: scale(1);
     opacity: 1;
   }
+}
+
+/* ---------- MapLibre popup (compact confirmation card) ---------- */
+.maplibregl-popup-content {
+  padding: 10px 12px 10px;
+  border-radius: 12px;
+  font-family: inherit;
+  color: #0f172a;
+  max-width: 260px;
+}
+
+.maplibregl-popup-close-button {
+  top: 4px;
+  right: 6px;
+  width: 22px;
+  height: 22px;
+  border-radius: 8px;
+  font-size: 16px;
+  line-height: 22px;
+  color: #334155; /* slate-700 */
+}
+
+.maplibregl-popup-close-button:hover {
+  background: rgba(15, 23, 42, 0.06);
+}
+
+.maplibregl-popup-tip {
+  filter: drop-shadow(0 8px 18px rgba(0, 0, 0, 0.18));
+}
+
+/* Popup DOM classes (used by MapClient) */
+.popup-card {
+  min-width: 0; /* allow natural shrink */
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.popup-title {
+  font-weight: 600;
+  font-size: 16px;
+  line-height: 1.25;
+  margin: 0;
+}
+
+.popup-subtitle {
+  font-size: 13px;
+  line-height: 1.35;
+  color: #475569; /* slate-600 */
+  margin: 0 0 6px 0;
+}
+
+.popup-btn {
+  width: 100%;
+  padding: 8px 10px;
+  border-radius: 10px;
+  background: #0f172a;
+  color: white;
+  font-weight: 600;
+  font-size: 14px;
+  cursor: pointer;
+  border: 0;
+}
+
+.popup-btn:hover {
+  background: #111c33;
+}
+
+/* ---------- Streaming text polish ---------- */
+@keyframes fadeInUp {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.fade-in-up {
+  animation: fadeInUp 260ms ease-out both;
+}
+
+mark.poi {
+  padding: 0.05em 0.25em;
+  border-radius: 0.4em;
+  background: rgba(15, 23, 42, 0.08);
+}
+
+/* Blinking caret */
+@keyframes caretBlink {
+  0%,
+  45% {
+    opacity: 1;
+  }
+  50%,
+  100% {
+    opacity: 0;
+  }
+}
+
+.caret-blink {
+  animation: caretBlink 1s steps(1, end) infinite;
 }

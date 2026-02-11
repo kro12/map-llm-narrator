@@ -1,5 +1,6 @@
 import type { GeoResult } from '@/lib/server/geoResolver'
 import type { Poi } from '@/lib/shared/types'
+import { httpDebug } from './httpDebug'
 
 function fmtKm(km: number) {
   if (!Number.isFinite(km)) return '? km'
@@ -46,7 +47,7 @@ export function buildFactPacketPrompt(args: { geo: GeoResult; attractions: Poi[]
       : ''
 
   // Keep the structure/rules very close to your POC
-  return (
+  const finishedPrompt =
     `DATA (facts only)\n` +
     `<<<\n` +
     `Location\n- ${geo.shortName}\n` +
@@ -85,5 +86,6 @@ export function buildFactPacketPrompt(args: { geo: GeoResult; attractions: Poi[]
     `\n` +
     `Do NOT include headings such as "Paragraph 1", "Paragraph 2", or "Bullets".\n` +
     `END`
-  )
+  httpDebug('promptBuilder', 'info', { finishedPrompt })
+  return finishedPrompt
 }

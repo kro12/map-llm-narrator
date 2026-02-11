@@ -59,28 +59,11 @@ export default function MapClient({ onReady }: { onReady?: (api: MapApi) => void
     clearPopup()
 
     const el = document.createElement('div')
-    el.className = 'text-sm text-slate-900'
+    el.className = 'popup-card'
     el.innerHTML = `
-      <div style="min-width: 190px">
-        <div style="font-weight: 600; margin-bottom: 6px;">Generate narration?</div>
-        <div style="opacity: 0.75; margin-bottom: 10px;">
-          This may take some time.
-        </div>
-        <button
-          id="go"
-          style="
-            width: 100%;
-            padding: 8px 10px;
-            border-radius: 8px;
-            background: #0f172a;
-            color: white;
-            font-weight: 600;
-            cursor: pointer;
-          "
-        >
-          Generate
-        </button>
-      </div>
+      <div class="popup-title">Generate narration?</div>
+      <div class="popup-subtitle">This may take some time.</div>
+      <button id="go" class="popup-btn">Generate</button>
     `
 
     el.querySelector('#go')?.addEventListener('click', () => {
