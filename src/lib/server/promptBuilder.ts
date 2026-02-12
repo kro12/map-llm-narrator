@@ -16,8 +16,104 @@ function takeNamed(pois: Poi[], n: number) {
 }
 
 /**
- * Builds a strict "FACT PACKET" prompt modeled after your narrate.mjs POC.
- * The model is told to ONLY use names present in the packet.
+ * Builds a strict JSON-mode prompt for Qwen
+ *
+ * Instead of asking for free-form text with structure conventions,
+ * we explicitly request a JSON object that matches our schema.
+ */
+export function buildStructuredPrompt(args: { geo: GeoResult; attractions: Poi[]; food: Poi[] }) {
+  const { geo, attractions, food } = args
+
+  const topVisit = takeNamed(attractions, 3)
+  const narrativePois = takeNamed(attractions, 2)
+  const topFood = takeNamed(food, 6)
+
+  // Build fact packet sections
+  const narrativeBlock =
+    narrativePois.length > 0
+      ? `Narrative POIs:\n${narrativePois.map((p) => `- ${line(p.name, p.distanceKm)}`).join('\n')}`
+      : ''
+
+  const attractionsBlock =
+    topVisit.length > 0
+      ? `Attractions:\n${topVisit.map((p) => `- ${line(p.name, p.distanceKm)}`).join('\n')}`
+      : `Attractions:\n- None found in data`
+
+  const foodBlock =
+    topFood.length > 0
+      ? `Food & Drink:\n${topFood.map((p) => `- ${line(p.name, p.distanceKm)}`).join('\n')}`
+      : `Food & Drink:\n- None found in data`
+
+  // Schema definition as part of prompt
+  const schemaDefinition = `{
+  "introParagraph": "string (2-3 sentences, 50-500 chars)",
+  "detailParagraph": "string (2-3 sentences with distances, 50-500 chars)",
+  "placesToVisit": [
+    { "name": "string", "distanceKm": number },
+    { "name": "string", "distanceKm": number },
+    { "name": "string", "distanceKm": number }
+  ],
+  "activities": {
+    "walk": "string (generic, no place names, 10-200 chars)",
+    "culture": "string (generic, no place names, 10-200 chars)",
+    "foodDrink": "string (mention 1-2 names if available, 10-200 chars)"
+  },
+  "wordCount": number
+}`
+
+  const finishedPrompt = `You are a location guide writer. Generate a JSON object matching this exact schema:
+
+${schemaDefinition}
+
+DATA (facts only):
+<<<
+Location:
+- ${geo.shortName}
+- Display: ${geo.displayName}
+${geo.country ? `- Country: ${geo.country}` : ''}
+${geo.region ? `- Region: ${geo.region}` : ''}
+
+${narrativeBlock}
+
+${attractionsBlock}
+
+${foodBlock}
+>>>
+
+RULES:
+1. Output ONLY valid JSON matching the schema above
+2. Only mention place names that appear in the DATA section (exact spelling)
+3. Do not add factual claims unless in the DATA section
+4. If "Narrative POIs" exist, mention both in detailParagraph with exact distances
+5. If "Food & drink" has items, mention 1-2 names in activities.foodDrink
+6. introParagraph: 2-3 sentences introducing the location
+7. detailParagraph: 2-3 sentences with specific POI mentions and distances
+8. placesToVisit: exactly 3 places from Attractions list (or top Narrative POIs)
+9. activities.walk: generic walking suggestion (NO place names)
+10. activities.culture: generic cultural suggestion (NO place names)
+11. activities.foodDrink: mention 1-2 specific food places if available, else generic
+12. wordCount: total word count across introParagraph + detailParagraph (should be 110-150)
+
+IMPORTANT:
+- Return ONLY the JSON object, no markdown, no explanation
+- Ensure all strings use normal spaces (not special unicode)
+- Verify wordCount matches actual content
+- If fewer than 3 attractions available, use what's available
+
+Generate the JSON now:`
+
+  httpDebug('promptBuilder.structured', 'info', {
+    promptLength: finishedPrompt.length,
+    narrativePoisCount: narrativePois.length,
+    attractionsCount: topVisit.length,
+    foodCount: topFood.length,
+  })
+
+  return finishedPrompt
+}
+
+/**
+ * Legacy free-text prompt builder (keep for backward compat during migration)
  */
 export function buildFactPacketPrompt(args: { geo: GeoResult; attractions: Poi[]; food: Poi[] }) {
   const { geo, attractions, food } = args
@@ -46,7 +142,6 @@ export function buildFactPacketPrompt(args: { geo: GeoResult; attractions: Poi[]
       ? `Places to visit candidates\n- ${topVisit.map((p) => line(p.name, p.distanceKm)).join('\n- ')}\n`
       : ''
 
-  // Keep the structure/rules very close to your POC
   const finishedPrompt =
     `DATA (facts only)\n` +
     `<<<\n` +
@@ -86,6 +181,7 @@ export function buildFactPacketPrompt(args: { geo: GeoResult; attractions: Poi[]
     `\n` +
     `Do NOT include headings such as "Paragraph 1", "Paragraph 2", or "Bullets".\n` +
     `END`
+
   httpDebug('promptBuilder', 'info', { finishedPrompt })
   return finishedPrompt
 }

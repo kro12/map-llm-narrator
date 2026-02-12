@@ -2,14 +2,43 @@ export const runtime = 'nodejs'
 
 import { reverseGeocode } from '@/lib/server/geoResolver'
 import { getPoisSafe } from '@/lib/server/poiResolver'
-import { buildFactPacketPrompt } from '@/lib/server/promptBuilder'
-import { streamQwen } from '@/lib/server/qwenClient'
+import { buildStructuredPrompt } from '@/lib/server/promptBuilder'
+import { generateNarration } from '@/lib/server/qwenClient'
+import type { NarrationOutput } from '@/lib/server/narrationSchema'
 import { httpDebug } from '@/lib/server/httpDebug'
 import { debug } from '@/lib/server/debug'
 
 type NarrateRequest = {
   lat: number
   lon: number
+}
+
+/**
+ * Converts structured JSON output to SSE text stream for UI compatibility
+ *
+ * This maintains backward compatibility with existing UI while using
+ * structured generation under the hood.
+ */
+function narrationToText(narration: NarrationOutput): string {
+  const { introParagraph, detailParagraph, placesToVisit, activities } = narration
+
+  const placesLine = `Places to visit: ${placesToVisit
+    .map((p) => `${p.name} (${p.distanceKm.toFixed(1)} km)`)
+    .join('; ')}`
+
+  const bullets = [
+    `- Walk: ${activities.walk}`,
+    `- Culture: ${activities.culture}`,
+    `- Food/Drink: ${activities.foodDrink}`,
+  ].join('\n')
+
+  return `${introParagraph}
+
+${detailParagraph}
+
+${placesLine}
+
+${bullets}`
 }
 
 export async function POST(req: Request) {
@@ -21,11 +50,6 @@ export async function POST(req: Request) {
 
   const encoder = new TextEncoder()
 
-  /**
-   * Helper: always return a properly formed SSE response.
-   * We centralise headers here so error cases never accidentally
-   * return JSON or HTML instead of event-stream.
-   */
   const sseResponse = (stream: ReadableStream) =>
     new Response(stream, {
       headers: {
@@ -36,11 +60,6 @@ export async function POST(req: Request) {
     })
 
   try {
-    /**
-     * --- Parse untrusted input safely ---
-     * We use Partial<T> to tolerate malformed JSON and then
-     * validate lat/lon at runtime.
-     */
     const payload = (await req.json().catch((err) => {
       httpDebug('api/narrate', 'error', 'json parse failed', err)
       return {}
@@ -63,31 +82,18 @@ export async function POST(req: Request) {
 
     const point = { lat, lon }
 
-    /**
-     * --- Fetch upstream data (best-effort) ---
-     * - reverseGeocode gives us structured location metadata
-     * - getPoisSafe never throws (returns empty results on failure)
-     */
     const [{ geo }, { pois }] = await Promise.all([reverseGeocode(point), getPoisSafe(point)])
 
-    const prompt = buildFactPacketPrompt({
+    const prompt = buildStructuredPrompt({
       geo,
       attractions: pois.attractions,
       food: pois.food,
     })
 
-    debug('api/narrate', 'prompt length', prompt.length)
+    debug('api/narrate', 'structured prompt length', prompt.length)
 
-    /**
-     * --- Create SSE stream ---
-     */
     const stream = new ReadableStream({
       async start(controller) {
-        /**
-         * Utility: send a logical SSE message.
-         * We split on newline and prefix each line with "data:"
-         * to conform to SSE framing rules.
-         */
         const send = (msg: string) => {
           for (const line of msg.split('\n')) {
             controller.enqueue(encoder.encode(`data: ${line}\n`))
@@ -96,16 +102,7 @@ export async function POST(req: Request) {
         }
 
         try {
-          /**
-           * Send structured metadata to the client as a special SSE control message.
-           *
-           * We separate:
-           *  - label → what the UI should display (most local, human-friendly)
-           *  - context → optional richer location context
-           *  - wikiCandidates → ordered fallbacks for image lookup
-           *
-           * This prevents image-search logic from degrading UI accuracy.
-           */
+          // Send metadata first
           send(
             `META:${JSON.stringify({
               label: geo.label ?? geo.shortName,
@@ -126,38 +123,51 @@ export async function POST(req: Request) {
             })}`,
           )
 
-          /**
-           * --- Stream model output ---
-           *
-           * We buffer small chunks from Qwen and only flush
-           * when we hit a safe boundary (whitespace or punctuation).
-           * This prevents mid-word UI artifacts.
-           */
-          let outBuf = ''
+          // Generate structured output with validation and retries
+          debug('api/narrate', 'generating with validation...')
+          const narration: NarrationOutput = await generateNarration(prompt, {
+            maxRetries: 3,
+            retryDelayMs: 1000,
+          })
 
-          for await (const chunk of streamQwen(prompt)) {
-            outBuf += chunk
+          debug('api/narrate', 'generation successful', {
+            wordCount: narration.wordCount,
+            placesCount: narration.placesToVisit.length,
+          })
 
-            // Flush only on safe boundaries to avoid broken words
-            if (/[ \n\r\t.,!?;:)\]]$/.test(outBuf)) {
-              send(outBuf)
-              outBuf = ''
+          // Convert to text format for UI (maintains backward compat)
+          const text = narrationToText(narration)
+
+          // Stream output in chunks for smooth UI animation
+          const words = text.split(/\s+/)
+          let buffer = ''
+
+          for (let i = 0; i < words.length; i++) {
+            buffer += (i > 0 ? ' ' : '') + words[i]
+
+            // Flush every ~5 words or at sentence boundaries
+            if (i % 5 === 4 || /[.!?;:]$/.test(words[i]) || i === words.length - 1) {
+              send(buffer)
+              buffer = ''
+
+              // Small delay for animation effect
+              await new Promise((resolve) => setTimeout(resolve, 50))
             }
           }
 
-          if (outBuf) send(outBuf)
+          if (buffer) send(buffer)
 
-          // Signal logical end of stream
           send('END')
           controller.close()
         } catch (e) {
-          /**
-           * Model failures should not break the UX.
-           * We gracefully degrade with a user-friendly message.
-           */
-          console.error('[api/narrate] stream error:', e)
+          console.error('[api/narrate] generation error:', e)
 
-          send('Sorry - task could not be completed for this location. Please try another point.')
+          const errorMsg =
+            e instanceof Error && e.message.includes('validation')
+              ? 'Could not generate valid response after retries. Please try another location.'
+              : 'Sorry - task could not be completed for this location. Please try another point.'
+
+          send(errorMsg)
           send('END')
           controller.close()
         }
@@ -166,10 +176,6 @@ export async function POST(req: Request) {
 
     return sseResponse(stream)
   } catch (e) {
-    /**
-     * Absolute last-resort safety net.
-     * Even here we return a valid SSE stream.
-     */
     console.error('[api/narrate] fatal error:', e)
 
     return sseResponse(

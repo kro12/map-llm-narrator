@@ -1,4 +1,9 @@
 import { debug, timed } from '@/lib/server/debug'
+import {
+  type NarrationOutput,
+  validateNarrationOutput,
+  extractJSON,
+} from '@/lib/server/narrationSchema'
 
 type QwenStreamLine = {
   response?: string
@@ -6,35 +11,30 @@ type QwenStreamLine = {
 }
 
 type QwenOptions = {
-  url?: string // QWEN_URL
-  token?: string // TOKEN (Bearer)
-  model?: string // QWEN_MODEL
-  temperature?: number // QWEN_TEMPERATURE
-  numPredict?: number // QWEN_NUM_PREDICT
-  stop?: string[] // stop tokens
-  keepAlive?: string // optional (endpoint supports it?)
+  url?: string
+  token?: string
+  model?: string
+  temperature?: number
+  numPredict?: number
+  stop?: string[]
+  keepAlive?: string
+  format?: 'json' // Force JSON output mode
 }
 
-/**
- * Safely read a numeric environment variable.
- *
- * Environment variables are always strings and may be missing
- * or misconfigured. This helper:
- * - converts the value to a number
- * - falls back if the variable is unset
- * - falls back if the value is not a finite number
- */
+type QwenGenerateOptions = QwenOptions & {
+  maxRetries?: number
+  retryDelayMs?: number
+}
+
 function envNumber(name: string, fallback: number) {
   const raw = process.env[name]
   if (!raw) return fallback
-
   const value = Number(raw)
   return Number.isFinite(value) ? value : fallback
 }
 
 /**
- * Streams text chunks from Ollama-style `/generate` endpoint:
- * expects newline-delimited JSON with { response, done }.
+ * Stream text chunks from Ollama-style `/generate` endpoint
  */
 export async function* streamQwen(prompt: string, opts: QwenOptions = {}) {
   const url = opts.url ?? process.env.QWEN_URL
@@ -52,6 +52,7 @@ export async function* streamQwen(prompt: string, opts: QwenOptions = {}) {
     model,
     stream: true,
     keep_alive: keepAlive,
+    format: opts.format, // 'json' for structured output
     options: { temperature, num_predict: numPredict, stop },
     prompt,
   }
@@ -73,7 +74,7 @@ export async function* streamQwen(prompt: string, opts: QwenOptions = {}) {
   }
   if (!res.body) throw new Error('Qwen response has no body.')
 
-  debug('qwen', 'stream start', { model, url })
+  debug('qwen', 'stream start', { model, url, format: opts.format })
 
   const reader = res.body.getReader()
   const decoder = new TextDecoder('utf-8')
@@ -85,7 +86,6 @@ export async function* streamQwen(prompt: string, opts: QwenOptions = {}) {
 
     buffer += decoder.decode(value, { stream: true })
 
-    // NDJSON: parse line-by-line
     let idx: number
     while ((idx = buffer.indexOf('\n')) >= 0) {
       const line = buffer.slice(0, idx).trim()
@@ -96,7 +96,6 @@ export async function* streamQwen(prompt: string, opts: QwenOptions = {}) {
       try {
         obj = JSON.parse(line) as QwenStreamLine
       } catch {
-        // If partial JSON landed, put it back and wait for more data
         buffer = line + '\n' + buffer
         break
       }
@@ -105,4 +104,79 @@ export async function* streamQwen(prompt: string, opts: QwenOptions = {}) {
       if (obj?.done) return
     }
   }
+}
+
+/**
+ * Non-streaming generation with automatic retry and validation
+ *
+ * This is the "function calling emulation" - we force JSON output,
+ * validate against schema, and retry on failure.
+ */
+export async function generateQwenValidated(
+  prompt: string,
+  opts: QwenGenerateOptions = {},
+): Promise<NarrationOutput> {
+  const maxRetries = opts.maxRetries ?? 3
+  const retryDelayMs = opts.retryDelayMs ?? 1000
+
+  let lastError: Error | null = null
+  let attempt = 0
+
+  while (attempt < maxRetries) {
+    attempt++
+    debug('qwen.validated', `attempt ${attempt}/${maxRetries}`)
+
+    try {
+      // Collect full response from stream
+      const chunks: string[] = []
+      for await (const chunk of streamQwen(prompt, { ...opts, format: 'json' })) {
+        chunks.push(chunk)
+      }
+
+      const rawResponse = chunks.join('')
+      debug('qwen.validated', 'raw response length', rawResponse.length)
+
+      // Extract and parse JSON
+      const parsed = extractJSON(rawResponse)
+
+      // Validate against schema
+      const validation = validateNarrationOutput(parsed)
+
+      if (validation.success) {
+        debug('qwen.validated', 'success', { attempt, wordCount: validation.data.wordCount })
+        return validation.data
+      }
+
+      // Schema validation failed
+      lastError = new Error(
+        `Schema validation failed (attempt ${attempt}): ${validation.issues.join(', ')}`,
+      )
+      debug('qwen.validated', 'validation failed', validation.issues)
+
+      // Don't retry on last attempt
+      if (attempt < maxRetries) {
+        debug('qwen.validated', `retrying after ${retryDelayMs}ms`)
+        await new Promise((resolve) => setTimeout(resolve, retryDelayMs))
+      }
+    } catch (err) {
+      lastError = err instanceof Error ? err : new Error(String(err))
+      debug('qwen.validated', 'error', lastError.message)
+
+      if (attempt < maxRetries) {
+        await new Promise((resolve) => setTimeout(resolve, retryDelayMs))
+      }
+    }
+  }
+
+  throw lastError ?? new Error('Validation failed after all retries')
+}
+
+/**
+ * Type-safe wrapper for generating with explicit schema validation
+ */
+export async function generateNarration(
+  prompt: string,
+  opts?: QwenGenerateOptions,
+): Promise<NarrationOutput> {
+  return generateQwenValidated(prompt, opts)
 }
