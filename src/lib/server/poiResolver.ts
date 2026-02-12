@@ -23,14 +23,14 @@ export type PoisResult = {
 }
 
 /**
- * OPTIMIZATION 1: Use public Overpass instances that are more stable
- * + Add kumi.systems (often faster than main servers)
+ * OPTIMIZATION 1: Use public Overpass instances that are more stable.
+ * Note: these vary day-to-day; failover makes this tolerable.
  */
 const OVERPASS_ENDPOINTS = [
-  'https://overpass.kumi.systems/api/interpreter', // keep first as often faster,
-  'https://z.overpass-api.de/api/interpreter', // solid 'official cluster'
+  'https://overpass.kumi.systems/api/interpreter', // often fast
+  'https://z.overpass-api.de/api/interpreter', // "official cluster" mirror
   'https://lz4.overpass-api.de/api/interpreter',
-  'https://overpass-api.de/api/interpreter', // Main server last (most loaded)
+  'https://overpass-api.de/api/interpreter', // main (often most loaded)
 ]
 
 function kmBetween(a: LatLon, b: LatLon) {
@@ -41,7 +41,6 @@ function kmBetween(a: LatLon, b: LatLon) {
   const lat2 = deg2rad(b.lat)
 
   const s = Math.sin(dLat / 2) ** 2 + Math.cos(lat1) * Math.cos(lat2) * Math.sin(dLon / 2) ** 2
-
   return 2 * R * Math.asin(Math.sqrt(s))
 }
 
@@ -70,10 +69,7 @@ function normalizeName(tags?: Record<string, string>) {
 
 /**
  * Narration-quality update:
- * We derive three cheap, deterministic fields from OSM tags:
- * - score: "narratability" weight (wiki/heritage > generic)
- * - bucket: coarse category used for diversity selection in promptBuilder
- * - hint: a tiny label (museum/castle/viewpoint/etc.) to help the LLM write something meaningful
+ * Derive deterministic fields used for ranking and prompt diversity.
  */
 function deriveAttractionMeta(tags?: Record<string, string>) {
   const t = tags ?? {}
@@ -87,7 +83,7 @@ function deriveAttractionMeta(tags?: Record<string, string>) {
   let hint = ''
   let score = 0
 
-  // Strong signals that correlate with "interesting" / well-described places
+  // Strong signals that correlate with better narration quality
   if (t.wikipedia || t.wikidata) score += 6
   if (t.website) score += 3
 
@@ -138,10 +134,9 @@ function deriveAttractionMeta(tags?: Record<string, string>) {
   }
 
   if (leisure && (leisure === 'park' || leisure === 'garden' || leisure === 'nature_reserve')) {
-    // Parks are often low-narrative unless they have strong signals (wiki/heritage).
-    // We still allow them, but their score will usually be lower unless supported.
     bucket = 'park'
     if (!hint) hint = leisure
+    // only boost parks when they have strong supporting signals
     score += t.wikipedia || t.wikidata ? 3 : 0
   }
 
@@ -150,9 +145,8 @@ function deriveAttractionMeta(tags?: Record<string, string>) {
 
 /**
  * Narration-quality update for food:
- * - bucket is always 'food' (fits PoiBucket)
- * - foodKind provides food diversity (pub/cafe/restaurant/bar/other)
- * - hint stays short and cheap to keep prompt size down
+ * - bucket is always 'food'
+ * - foodKind provides subtyping used by prompt diversity
  */
 function deriveFoodMeta(tags?: Record<string, string>) {
   const t = tags ?? {}
@@ -185,8 +179,28 @@ function deriveFoodMeta(tags?: Record<string, string>) {
 }
 
 /**
- * OPTIMIZATION 2: Reduce query complexity.
- * Keep queries relatively focused so Overpass responds faster.
+ * Fallback attractions query: nodes-only + fewer tag groups.
+ * Intended for dense areas where the main attractions query may overload / time out.
+ */
+function buildAttractionQueryNodesOnly(point: LatLon, radiusMeters: number) {
+  const { lat, lon } = point
+
+  return `
+[out:json][timeout:12];
+(
+  node(around:${radiusMeters},${lat},${lon})["tourism"~"attraction|museum|gallery|viewpoint|artwork"];
+  node(around:${radiusMeters},${lat},${lon})["historic"~"castle|ruins|monument|memorial|archaeological_site"];
+  node(around:${radiusMeters},${lat},${lon})["man_made"~"lighthouse|tower|bridge"];
+);
+out tags center;
+`
+}
+
+/**
+ * OPTIMIZATION 2: Reduce query complexity (avoid mega queries).
+ *
+ * Key idea: in dense cities, `way(...)` queries are the most likely to time out / 504.
+ * We bias toward high-signal *nodes* (tourism/historic/natural/man_made/leisure).
  */
 function buildAttractionQuery(point: LatLon, radiusMeters: number) {
   const { lat, lon } = point
@@ -194,12 +208,17 @@ function buildAttractionQuery(point: LatLon, radiusMeters: number) {
   return `
 [out:json][timeout:15];
 (
+  // High-signal tourism POIs (nodes only)
   node(around:${radiusMeters},${lat},${lon})["tourism"~"attraction|museum|gallery|viewpoint|zoo|theme_park|artwork"];
-  way(around:${radiusMeters},${lat},${lon})["tourism"~"attraction|museum|gallery|viewpoint|zoo|theme_park|artwork"];
 
+  // Historic POIs (nodes only; more selective)
   node(around:${radiusMeters},${lat},${lon})["historic"~"castle|ruins|monument|memorial|fort|archaeological_site"];
+
+  // Scenic / notable structures (nodes only)
   node(around:${radiusMeters},${lat},${lon})["man_made"~"lighthouse|tower|bridge"];
   node(around:${radiusMeters},${lat},${lon})["natural"~"beach|peak|cliff|waterfall|bay"];
+
+  // Leisure areas (nodes only)
   node(around:${radiusMeters},${lat},${lon})["leisure"~"park|garden|nature_reserve"];
 );
 out tags center;
@@ -218,13 +237,47 @@ out tags center;
 }
 
 /**
- * OPTIMIZATION 3: Early abort (timeout) for fetch calls.
+ * Merge two abort signals so either can cancel the request.
+ * If either is already aborted, abort immediately.
  */
-async function fetchWithTimeout(url: string, init: RequestInit, ms: number) {
+function mergeSignals(a?: AbortSignal, b?: AbortSignal): AbortSignal | undefined {
+  if (!a) return b
+  if (!b) return a
+
+  if (a.aborted || b.aborted) {
+    const ac = new AbortController()
+    ac.abort()
+    return ac.signal
+  }
+
+  const ac = new AbortController()
+  const onAbort = () => ac.abort()
+
+  a.addEventListener('abort', onAbort, { once: true })
+  b.addEventListener('abort', onAbort, { once: true })
+
+  // Clean up listeners once we abort to avoid tiny listener leaks
+  ac.signal.addEventListener(
+    'abort',
+    () => {
+      a.removeEventListener('abort', onAbort)
+      b.removeEventListener('abort', onAbort)
+    },
+    { once: true },
+  )
+
+  return ac.signal
+}
+
+/**
+ * OPTIMIZATION 3: Early abort via timeout + optional external signal (budget).
+ */
+async function fetchWithTimeout(url: string, init: RequestInit, ms: number, signal?: AbortSignal) {
   const ac = new AbortController()
   const t = setTimeout(() => ac.abort(), ms)
   try {
-    return await fetch(url, { ...init, signal: ac.signal })
+    const merged = mergeSignals(signal, ac.signal)
+    return await fetch(url, { ...init, signal: merged })
   } finally {
     clearTimeout(t)
   }
@@ -232,10 +285,9 @@ async function fetchWithTimeout(url: string, init: RequestInit, ms: number) {
 
 /**
  * OPTIMIZATION 4: Overpass failover.
- * `timeoutMs` is a per-endpoint timeout; we pass the *remaining wall-clock budget*
- * from getPois(), so a single slow request can't blow the overall POI budget.
+ * `timeoutMs` is per-endpoint; `signal` is the shared budget abort.
  */
-async function fetchOverpassWithFailover(query: string, timeoutMs: number) {
+async function fetchOverpassWithFailover(query: string, timeoutMs: number, signal?: AbortSignal) {
   let lastErr: unknown = null
   let attempt = 0
 
@@ -255,7 +307,8 @@ async function fetchOverpassWithFailover(query: string, timeoutMs: number) {
           },
           body: new URLSearchParams({ data: query }).toString(),
         },
-        timeoutMs, // ✅ IMPORTANT: use remaining budget, not a fixed 8s
+        timeoutMs,
+        signal,
       )
 
       if (res.status === 504 || res.status === 503 || res.status === 429) {
@@ -264,9 +317,7 @@ async function fetchOverpassWithFailover(query: string, timeoutMs: number) {
         continue
       }
 
-      if (!res.ok) {
-        throw new Error(`Overpass HTTP ${res.status} @ ${endpoint}`)
-      }
+      if (!res.ok) throw new Error(`Overpass HTTP ${res.status} @ ${endpoint}`)
 
       const data = (await res.json()) as OverpassResponse
       debug('overpass', `success on attempt ${attempt}`, {
@@ -275,11 +326,14 @@ async function fetchOverpassWithFailover(query: string, timeoutMs: number) {
       })
       return data
     } catch (e) {
+      // If budget abort fired, stop failover immediately (don’t waste time)
+      if (signal?.aborted) throw e
+
       lastErr = e
       const errMsg = e instanceof Error ? e.message : 'Unknown error'
       debug('overpass', 'endpoint failed', endpoint, errMsg)
 
-      // Courtesy delay, but don't waste time if the budget is nearly gone.
+      // Courtesy delay, but don’t waste time if we’re near the end of budget.
       if (attempt < OVERPASS_ENDPOINTS.length && timeoutMs > 1500) {
         await new Promise((resolve) => setTimeout(resolve, 500))
       }
@@ -290,18 +344,10 @@ async function fetchOverpassWithFailover(query: string, timeoutMs: number) {
 }
 
 /**
- * Convert raw Overpass elements -> POIs:
- * - normalize name
- * - filter obvious low-signal attraction names
- * - derive score/bucket/hint for ranking and prompt diversity
- *
- * Note: We branch on `kind` to satisfy discriminated union typing of Poi.
+ * Convert raw Overpass elements -> POIs with ranking metadata.
+ * Branch on `kind` to satisfy Poi discriminated union typing.
  */
-function elementsToPois(
-  point: LatLon,
-  kind: 'attraction' | 'food',
-  elements: OverpassElement[],
-): Poi[] {
+function elementsToPois(point: LatLon, kind: 'attraction' | 'food', elements: OverpassElement[]) {
   const out: Poi[] = []
 
   for (const el of elements) {
@@ -311,9 +357,9 @@ function elementsToPois(
     const name = normalizeName(el.tags)
     if (!name) continue
 
+    // Cheap filter for obvious low-signal attraction names.
     const n = name.toLowerCase()
     if (kind === 'attraction') {
-      // Cheap filter for obvious low-signal attraction names.
       if (n === 'park' || n === 'playground' || n.includes('playing fields')) continue
     }
 
@@ -328,7 +374,6 @@ function elementsToPois(
         lon: coords.lon,
         distanceKm: d,
         osmUrl: osmUrl(el),
-
         score: meta.score,
         bucket: meta.bucket,
         hint: meta.hint,
@@ -342,7 +387,6 @@ function elementsToPois(
         lon: coords.lon,
         distanceKm: d,
         osmUrl: osmUrl(el),
-
         score: meta.score,
         bucket: 'food',
         foodKind: meta.foodKind,
@@ -351,7 +395,7 @@ function elementsToPois(
     }
   }
 
-  // De-dupe by name + rough location bucket
+  // De-dupe by name + approximate location + category
   const seen = new Set<string>()
   const deduped: Poi[] = []
   for (const p of out) {
@@ -368,13 +412,12 @@ function elementsToPois(
 }
 
 /**
- * Safe wrapper: never throw POI errors to the caller; return empty data + message instead.
- * Also surfaces a warning if we had to cut off POI lookup due to our time budget.
+ * Safe wrapper: never throw POI errors to the caller.
+ * Adds a warning when we return partial results due to time budget.
  */
 export async function getPoisSafe(point: LatLon): Promise<{ pois: PoisResult; cacheHit: boolean }> {
   try {
     const { pois, cacheHit, budgetExceeded } = await getPois(point)
-
     return {
       pois: {
         ...pois,
@@ -388,7 +431,6 @@ export async function getPoisSafe(point: LatLon): Promise<{ pois: PoisResult; ca
   } catch (e) {
     const msg = e instanceof Error ? e.message : 'Unknown Overpass error'
     debug('poiResolver', 'falling back to minimal data', msg)
-
     return {
       pois: {
         attractions: [],
@@ -405,7 +447,7 @@ export async function getPois(point: LatLon): Promise<{
   cacheHit: boolean
   budgetExceeded: boolean
 }> {
-  // v3 rounding: 5 -> 3 decimals (~100m) to increase cache hits while still being relevant.
+  // v3 rounding: ~100m to increase cache hits while still being narratively relevant.
   const lat = Number(point.lat.toFixed(3))
   const lon = Number(point.lon.toFixed(3))
   const rounded: LatLon = { lat, lon }
@@ -414,7 +456,7 @@ export async function getPois(point: LatLon): Promise<{
   const ttlSeconds = 60 * 60 * 24 // 24h
 
   return await timed('overpass.pois.total', async () => {
-    // Track budget exhaustion OUTSIDE cached value to avoid caching transient timeouts.
+    // Track budget exhaustion OUTSIDE cached value (don’t cache transient timeouts)
     let budgetExceeded = false
 
     const { value, cacheHit } = await withCacheJSON<{ attractions: Poi[]; food: Poi[] }>(
@@ -425,75 +467,188 @@ export async function getPois(point: LatLon): Promise<{
           { name: 'normal', attractionRadius: 5000, foodRadius: 2000 },
           { name: 'fallback', attractionRadius: 2000, foodRadius: 1000 },
           { name: 'minimal', attractionRadius: 500, foodRadius: 500 },
-        ]
+        ] as const
 
         let lastError: Error | null = null
 
-        // Global wall-clock budget for POIs. Keeps the UI responsive.
-        const POIS_BUDGET_MS = 10_000
+        // Global wall-clock budget for POIs (env var).
+        // Example: POIS_BUDGET_MS=15000
+        const POIS_BUDGET_MS = (() => {
+          const raw = process.env.POIS_BUDGET_MS
+          const n = raw ? Number(raw) : NaN
+          return Number.isFinite(n) ? n : 10_000
+        })()
+
         const budgetStart = Date.now()
+
+        // Abort everything once budget is hit (kills in-flight fetches)
+        const budgetAbort = new AbortController()
+        const budgetTimer = setTimeout(() => budgetAbort.abort(), POIS_BUDGET_MS)
 
         let bestAttractions: Poi[] = []
         let bestFood: Poi[] = []
 
-        for (const strategy of strategies) {
-          const elapsed = Date.now() - budgetStart
-          if (elapsed >= POIS_BUDGET_MS) {
-            budgetExceeded = true
-            debug('overpass', 'POIs budget exceeded, returning best partial results', {
-              elapsedMs: elapsed,
-              bestAttractions: bestAttractions.length,
-              bestFood: bestFood.length,
-              lastStrategyTried: strategy.name,
-            })
-            return { attractions: bestAttractions, food: bestFood }
-          }
+        try {
+          for (const strategy of strategies) {
+            const elapsed = Date.now() - budgetStart
+            if (elapsed >= POIS_BUDGET_MS) {
+              budgetExceeded = true
+              debug('overpass', 'POIs budget exceeded, returning best partial results', {
+                elapsedMs: elapsed,
+                bestAttractions: bestAttractions.length,
+                bestFood: bestFood.length,
+                lastStrategyTried: strategy.name,
+              })
+              return { attractions: bestAttractions, food: bestFood }
+            }
 
-          try {
-            debug('overpass', `trying ${strategy.name} strategy`, strategy)
+            try {
+              debug('overpass', `trying ${strategy.name} strategy`, strategy)
 
-            const attractionsQuery = buildAttractionQuery(rounded, strategy.attractionRadius)
-            const foodQuery = buildFoodQuery(rounded, strategy.foodRadius)
+              const attractionsQuery = buildAttractionQuery(rounded, strategy.attractionRadius)
+              const foodQuery = buildFoodQuery(rounded, strategy.foodRadius)
 
-            // Remaining budget becomes the per-endpoint timeout (true total-time cap).
-            const remaining = Math.max(1000, POIS_BUDGET_MS - (Date.now() - budgetStart))
+              const remaining = Math.max(1000, POIS_BUDGET_MS - (Date.now() - budgetStart))
 
-            const [attractionsResp, foodResp] = await Promise.all([
-              timed('overpass.attractions', () =>
-                fetchOverpassWithFailover(attractionsQuery, remaining),
-              ),
-              timed('overpass.food', () => fetchOverpassWithFailover(foodQuery, remaining)),
-            ])
+              // Allow one side to succeed even if the other fails.
+              const [attRes, foodRes] = await Promise.allSettled([
+                timed('overpass.attractions', () =>
+                  fetchOverpassWithFailover(attractionsQuery, remaining, budgetAbort.signal),
+                ),
+                timed('overpass.food', () =>
+                  fetchOverpassWithFailover(foodQuery, remaining, budgetAbort.signal),
+                ),
+              ])
 
-            const attractions = elementsToPois(
-              rounded,
-              'attraction',
-              attractionsResp.elements,
-            ).slice(0, 25)
-            const food = elementsToPois(rounded, 'food', foodResp.elements).slice(0, 25)
+              if (attRes.status === 'rejected') {
+                debug('overpass', 'attractions rejected', {
+                  reason: String(attRes.reason),
+                  remainingMs: remaining,
+                })
+              }
+              if (foodRes.status === 'rejected') {
+                debug('overpass', 'food rejected', {
+                  reason: String(foodRes.reason),
+                  remainingMs: remaining,
+                })
+              }
 
-            if (attractions.length > bestAttractions.length) bestAttractions = attractions
-            if (food.length > bestFood.length) bestFood = food
+              let attractions =
+                attRes.status === 'fulfilled'
+                  ? elementsToPois(rounded, 'attraction', attRes.value.elements).slice(0, 25)
+                  : []
 
-            debug('overpass', `${strategy.name} strategy succeeded`, {
-              attractions: attractions.length,
-              food: food.length,
-            })
+              const food =
+                foodRes.status === 'fulfilled'
+                  ? elementsToPois(rounded, 'food', foodRes.value.elements).slice(0, 25)
+                  : []
 
-            return { attractions, food }
-          } catch (error) {
-            lastError = error instanceof Error ? error : new Error(String(error))
-            debug('overpass', `${strategy.name} strategy failed, trying next`, lastError.message)
+              debug('overpass', 'post-transform counts', {
+                rawAttractionElements:
+                  attRes.status === 'fulfilled' ? attRes.value.elements.length : 0,
+                rawFoodElements: foodRes.status === 'fulfilled' ? foodRes.value.elements.length : 0,
+                attractionsAfterFilter: attractions.length,
+                foodAfterFilter: food.length,
+              })
 
-            // Courtesy delay, but skip if we're already running out of budget.
-            const elapsed2 = Date.now() - budgetStart
-            if (strategy.name !== 'minimal' && elapsed2 < POIS_BUDGET_MS * 0.5) {
-              await new Promise((resolve) => setTimeout(resolve, 1000))
+              /**
+               * NEW: attractions-only fallback
+               *
+               * If food succeeded but attractions are empty AND attractions request failed/rejected,
+               * try a cheaper attractions query (nodes-only, smaller radius) to avoid “all food” results.
+               *
+               * This specifically addresses the “big city” failure mode where the attractions query
+               * is more likely to overload while food still works.
+               */
+              if (attractions.length === 0 && food.length > 0 && attRes.status === 'rejected') {
+                const elapsed3 = Date.now() - budgetStart
+                const remaining3 = Math.max(800, POIS_BUDGET_MS - elapsed3)
+
+                // Only try if we have enough time left to realistically get a response.
+                if (remaining3 > 1500 && !budgetAbort.signal.aborted) {
+                  try {
+                    const fallbackRadius = Math.min(1500, strategy.attractionRadius)
+
+                    debug('overpass', 'attractions fallback (nodes-only) starting', {
+                      fallbackRadius,
+                      remainingMs: remaining3,
+                    })
+
+                    const fallbackQuery = buildAttractionQueryNodesOnly(rounded, fallbackRadius)
+
+                    const fallbackResp = await timed('overpass.attractions.fallback', () =>
+                      fetchOverpassWithFailover(
+                        fallbackQuery,
+                        Math.min(remaining3, 4000), // hard cap so fallback can’t dominate budget
+                        budgetAbort.signal,
+                      ),
+                    )
+
+                    const fallbackAttractions = elementsToPois(
+                      rounded,
+                      'attraction',
+                      fallbackResp.elements,
+                    ).slice(0, 25)
+
+                    if (fallbackAttractions.length > 0) {
+                      attractions = fallbackAttractions
+                      debug('overpass', 'attractions fallback succeeded', {
+                        rawFallbackElements: fallbackResp.elements.length,
+                        attractionsAfterFilter: attractions.length,
+                      })
+                    } else {
+                      debug('overpass', 'attractions fallback returned no usable POIs', {
+                        rawFallbackElements: fallbackResp.elements.length,
+                      })
+                    }
+                  } catch (e) {
+                    debug('overpass', 'attractions fallback failed', {
+                      reason: e instanceof Error ? e.message : String(e),
+                    })
+                  }
+                }
+              }
+
+              if (attractions.length > bestAttractions.length) bestAttractions = attractions
+              if (food.length > bestFood.length) bestFood = food
+
+              if (attractions.length || food.length) {
+                debug('overpass', `${strategy.name} strategy partial/complete success`, {
+                  attractions: attractions.length,
+                  food: food.length,
+                  attractionsOk: attRes.status === 'fulfilled',
+                  foodOk: foodRes.status === 'fulfilled',
+                })
+                return { attractions, food }
+              }
+            } catch (error) {
+              // If we aborted due to budget, return best partials immediately.
+              if (budgetAbort.signal.aborted) {
+                budgetExceeded = true
+                debug('overpass', 'POIs budget abort fired, returning best partial results', {
+                  elapsedMs: Date.now() - budgetStart,
+                  bestAttractions: bestAttractions.length,
+                  bestFood: bestFood.length,
+                  lastStrategyTried: strategy.name,
+                })
+                return { attractions: bestAttractions, food: bestFood }
+              }
+
+              lastError = error instanceof Error ? error : new Error(String(error))
+              debug('overpass', `${strategy.name} strategy failed, trying next`, lastError.message)
+
+              // Courtesy delay, but skip if we’re already running out of budget.
+              const elapsed2 = Date.now() - budgetStart
+              if (strategy.name !== 'minimal' && elapsed2 < POIS_BUDGET_MS * 0.5) {
+                await new Promise((resolve) => setTimeout(resolve, 1000))
+              }
             }
           }
-        }
 
-        throw lastError ?? new Error('All Overpass strategies failed')
+          throw lastError ?? new Error('All Overpass strategies failed')
+        } finally {
+          clearTimeout(budgetTimer)
+        }
       },
     )
 
@@ -503,7 +658,6 @@ export async function getPois(point: LatLon): Promise<{
       budgetExceeded,
     })
 
-    // for UI to actually display the warning, make sure /api/narrate handler includes pois.warnings
     return { pois: value, cacheHit, budgetExceeded }
   })
 }

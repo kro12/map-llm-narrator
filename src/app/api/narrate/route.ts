@@ -14,10 +14,8 @@ type NarrateRequest = {
 }
 
 /**
- * Converts structured JSON output to SSE text stream for UI compatibility
- *
- * This maintains backward compatibility with existing UI while using
- * structured generation under the hood.
+ * Converts structured JSON output to plain text for UI compatibility.
+ * We keep the exact output format the existing UI expects.
  */
 function narrationToText(narration: NarrationOutput): string {
   const { introParagraph, detailParagraph, placesToVisit, activities } = narration
@@ -81,6 +79,7 @@ export async function POST(req: Request) {
     }
 
     const point = { lat, lon }
+
     debug('api/narrate', 'before reverseGeocode/getPoisSafe')
     const [{ geo }, { pois }] = await Promise.all([reverseGeocode(point), getPoisSafe(point)])
     debug('api/narrate', 'after reverseGeocode/getPoisSafe')
@@ -96,6 +95,7 @@ export async function POST(req: Request) {
     const stream = new ReadableStream({
       async start(controller) {
         const send = (msg: string) => {
+          // SSE: one "data:" line per line; blank line ends the event
           for (const line of msg.split('\n')) {
             controller.enqueue(encoder.encode(`data: ${line}\n`))
           }
@@ -103,7 +103,7 @@ export async function POST(req: Request) {
         }
 
         try {
-          // Send metadata first
+          // Send metadata first (UI can update map header immediately)
           send(
             `META:${JSON.stringify({
               label: geo.label ?? geo.shortName,
@@ -121,17 +121,37 @@ export async function POST(req: Request) {
                 geo.region,
                 geo.country,
               ].filter(Boolean),
+              // Optional: surface warnings to UI if you want
+              warnings: pois.warnings ?? [],
             })}`,
           )
 
-          const allowedNames = new Set([
+          // Build allowed-name set from resolved POIs.
+          // This is used to prevent hallucinated place names in the LLM output.
+          const allowedNames = new Set<string>([
             ...pois.attractions.map((p) => p.name),
             ...pois.food.map((p) => p.name),
           ])
 
+          // Determine whether we actually have POIs.
+          // If Overpass timed out or returned nothing, we must relax validation.
+          const hasPois = pois.attractions.length > 0 || pois.food.length > 0
+
+          debug('api/narrate', 'validationMode', {
+            mode: hasPois ? 'strict' : 'schema-only',
+            attractions: pois.attractions.length,
+            food: pois.food.length,
+          })
+
           debug('api/narrate', 'before generateNarration')
-          // Generate structured output with validation and retries
-          const narration: NarrationOutput = await generateNarration(prompt, allowedNames, {
+
+          // Strict mode when POIs exist:
+          //   - Enforce allowed-name validation
+          // Relaxed mode when POIs are empty:
+          //   - Skip allowed-name enforcement
+          //   - Only enforce structural schema validation
+          const narration: NarrationOutput = await generateNarration(prompt, {
+            allowedNames: hasPois ? allowedNames : undefined,
             maxRetries: 3,
             retryDelayMs: 1000,
           })
@@ -140,37 +160,25 @@ export async function POST(req: Request) {
             placesCount: narration.placesToVisit.length,
           })
 
-          // Convert to text format for UI (maintains backward compat)
+          // Convert to the legacy plain-text format
           const text = narrationToText(narration)
 
-          // Stream output in chunks for smooth UI animation
-          const words = text.split(/\s+/)
-          let buffer = ''
+          /**
+           * IMPORTANT CHANGE:
+           * We no longer "fake stream" word-by-word with server-side delays.
+           * The server should respond as fast as possible and let the client animate if desired.
+           */
+          send(text)
 
-          const t0 = Date.now()
-          for (let i = 0; i < words.length; i++) {
-            buffer += (i > 0 ? ' ' : '') + words[i]
-
-            // Flush every ~5 words or at sentence boundaries
-            if (i % 5 === 4 || /[.!?;:]$/.test(words[i]) || i === words.length - 1) {
-              send(buffer)
-              buffer = ''
-
-              // Small delay for animation effect
-              await new Promise((resolve) => setTimeout(resolve, 50))
-            }
-          }
-          debug('api/narrate', 'after streaming loop', { ms: Date.now() - t0 })
-
-          if (buffer) send(buffer)
           debug('api/narrate', 'before END')
           send('END')
           controller.close()
+          debug('api/narrate', 'after close')
         } catch (e) {
           console.error('[api/narrate] generation error:', e)
 
           const errorMsg =
-            e instanceof Error && e.message.includes('validation')
+            e instanceof Error && e.message.toLowerCase().includes('validation')
               ? 'Could not generate valid response after retries. Please try another location.'
               : 'Sorry - task could not be completed for this location. Please try another point.'
 
@@ -178,7 +186,7 @@ export async function POST(req: Request) {
           debug('api/narrate', 'before END in catch block')
           send('END')
           controller.close()
-          debug('api/narrate', 'after close')
+          debug('api/narrate', 'after close in catch block')
         }
       },
     })

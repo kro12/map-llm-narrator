@@ -2,13 +2,13 @@
 
 /**
  * NOTE:
- * - This page uses effects for async fetch + streaming UI animation.
+ * - This page uses effects for async fetch + streaming UI updates.
  * - The `react-hooks/set-state-in-effect` rule is too strict for this legitimate pattern.
  */
 /* eslint-disable react-hooks/set-state-in-effect */
 /* eslint-disable @next/next/no-img-element */
 
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import MapClient, { MapApi } from '@/components/MapClient'
 import { useNarrationStore } from '@/lib/store/narrationStore'
 
@@ -107,47 +107,35 @@ export default function Home() {
   const [wikiLoading, setWikiLoading] = useState(false)
   const [wikiTried, setWikiTried] = useState(false)
 
+  // NEW: simple fade-in state for narration body (no typewriter)
+  const [fadeIn, setFadeIn] = useState(false)
+
   const drawerOpen = status === 'streaming' || status === 'done' || !!error
 
   // Stable callbacks (reduces prop churn into MapClient)
   const handleMapReady = useCallback((api: MapApi) => setMapApi(api), [])
   const handlePreview = useCallback((dataUrl: string) => setPreviewSrc(dataUrl), [])
 
-  // --- animated streaming text ---
-  const [displayText, setDisplayText] = useState('')
-  const rafRef = useRef<number | null>(null)
+  // Use the store text directly (no client-side “typing”)
+  const displayText = text ?? ''
 
   useEffect(() => {
     // New narration run: clear wiki state (keep preview as it belongs to this run)
     setWikiSrc(null)
     setWikiLoading(false)
     setWikiTried(false)
+
+    // NEW: reset fade-in for a new run
+    setFadeIn(false)
   }, [runId])
 
+  // NEW: trigger fade-in the first time we get non-empty narration text for this run
   useEffect(() => {
-    if (!text) {
-      setDisplayText('')
-      return
-    }
-
-    if (rafRef.current) cancelAnimationFrame(rafRef.current)
-
-    const step = () => {
-      setDisplayText((cur) => {
-        if (cur.length >= text.length) return cur
-        const nextLen = Math.min(text.length, cur.length + 6)
-        return text.slice(0, nextLen)
-      })
-      rafRef.current = requestAnimationFrame(step)
-    }
-
-    rafRef.current = requestAnimationFrame(step)
-
-    return () => {
-      if (rafRef.current) cancelAnimationFrame(rafRef.current)
-      rafRef.current = null
-    }
-  }, [text])
+    if (!displayText) return
+    // set next tick to ensure CSS transitions apply
+    const t = setTimeout(() => setFadeIn(true), 0)
+    return () => clearTimeout(t)
+  }, [displayText])
 
   const wikiCandidates = useMemo(() => meta?.wikiCandidates ?? [], [meta?.wikiCandidates])
 
@@ -188,6 +176,7 @@ export default function Home() {
     setWikiSrc(null)
     setWikiLoading(false)
     setWikiTried(false)
+    setFadeIn(false)
   }
 
   const blocks = useMemo(
@@ -241,7 +230,7 @@ export default function Home() {
       >
         <div className="h-full flex flex-col text-slate-900">
           <div className="p-4 border-b flex items-center justify-between">
-            <div className="font-semibold">Guide</div>
+            <div className="font-semibold">Location Guide</div>
             <Stack direction="row" spacing={1}>
               <Button
                 variant="outlined"
@@ -276,7 +265,14 @@ export default function Home() {
             ) : status === 'streaming' && !displayText ? (
               <Skeleton />
             ) : (
-              <div className="space-y-3 whitespace-pre-wrap">
+              // fade-in wrapper for the narration content
+              <div
+                className={[
+                  'space-y-3 whitespace-pre-wrap',
+                  'transition-opacity duration-300 ease-out',
+                  fadeIn ? 'opacity-100' : 'opacity-0',
+                ].join(' ')}
+              >
                 {blocks.map((block, idx) => {
                   const isLast = idx === blocks.length - 1
                   return (
@@ -287,7 +283,8 @@ export default function Home() {
                     >
                       <div className="leading-relaxed">
                         {highlightPlaceNames(block, placeNames)}
-                        {status === 'streaming' && isLast && (
+                        {/* Optional caret while streaming (kept for UX continuity) */}
+                        {status === 'streaming' && isLast && displayText && (
                           <span className="inline-block align-baseline opacity-70 caret-blink">
                             ▍
                           </span>
@@ -299,7 +296,9 @@ export default function Home() {
               </div>
             )}
           </div>
-
+          {meta?.warnings?.length ? (
+            <div className="text-xs text-amber-600 mb-2">{meta.warnings[0]}</div>
+          ) : null}
           <div className="p-3 border-t text-xs text-slate-500">Status: {status}</div>
         </div>
       </aside>

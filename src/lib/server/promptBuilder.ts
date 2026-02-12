@@ -177,7 +177,8 @@ RULES:
 IMPORTANT:
 - Return ONLY the JSON object, no markdown, no explanation
 - Ensure all strings use normal spaces (not special unicode)
-- If fewer than 3 attractions available, use what's available
+- If there are fewer than 3 attractions, fill remaining placesToVisit entries with "None found in data" and distanceKm: 0
+- If there are no food places, set activities.foodDrink to "None found in data".
 
 Generate the JSON now:`
 

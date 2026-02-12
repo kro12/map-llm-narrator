@@ -125,49 +125,65 @@ export function validateNarrationOutputWithAllowedNames(
   allowedNames: Set<string>,
 ): ValidationResult<NarrationOutput> {
   const base = validateNarrationOutput(raw)
-
   if (!base.success) return base
 
   const data = base.data
   const issues: string[] = []
 
-  // --- 1. Validate placesToVisit names ---
-  for (const place of data.placesToVisit) {
-    if (!allowedNames.has(place.name)) {
-      issues.push(`placesToVisit contains disallowed name: ${place.name}`)
-    }
-  }
+  const NONE = 'None found in data'
 
-  // --- 2. Validate foodDrink ---
-  // If allowed food names exist, foodDrink must reference at least one of them.
-  if (allowedNames.size > 0) {
+  // If we have *no* allowed names at all, force a generic output mode.
+  // This prevents hallucinations when Overpass returns nothing.
+  if (allowedNames.size === 0) {
+    for (const place of data.placesToVisit) {
+      if (place.name !== NONE) {
+        issues.push(`No POIs available, but placesToVisit is not "${NONE}" (got: ${place.name})`)
+      }
+    }
+
+    // When POIs are empty, foodDrink must also be the NONE sentinel.
+    // This is the simplest deterministic anti-hallucination guard.
+    if (data.activities.foodDrink !== NONE) {
+      issues.push(`No POIs available, activities.foodDrink must be "${NONE}"`)
+    }
+  } else {
+    // --- 1) placesToVisit names must be allowed ---
+    for (const place of data.placesToVisit) {
+      if (!allowedNames.has(place.name)) {
+        issues.push(`placesToVisit contains disallowed name: ${place.name}`)
+      }
+    }
+
+    // --- 2) foodDrink: either generic OR mention >= 1 allowed name ---
+    // Deterministic check: foodDrink must include at least one allowed POI name
+    // (unless it uses the NONE sentinel).
+    const isGeneric =
+      data.activities.foodDrink === NONE ||
+      data.activities.foodDrink.toLowerCase().includes('none found')
+
     const mentionsAllowed = Array.from(allowedNames).some((name) =>
       data.activities.foodDrink.includes(name),
     )
 
-    const isGeneric =
-      data.activities.foodDrink === 'None found in data' ||
-      data.activities.foodDrink.toLowerCase().includes('none found')
-
-    if (!mentionsAllowed && !isGeneric) {
+    if (!isGeneric && !mentionsAllowed) {
       issues.push('activities.foodDrink does not reference any allowed food place')
     }
-  }
 
-  // --- 3. Validate detailParagraph ---
-  // Ensure that any place mentioned in placesToVisit appears in detailParagraph.
-  for (const place of data.placesToVisit) {
-    if (!data.detailParagraph.includes(place.name)) {
-      issues.push(`detailParagraph does not reference place: ${place.name}`)
+    // --- 3) Option A: detailParagraph must mention *at least 2* of the 3 placesToVisit ---
+    // Requiring all 3 is brittle in 2–3 sentences; 2/3 keeps quality high while reducing failures.
+    const mentionedCount = data.placesToVisit.reduce((acc, place) => {
+      return acc + (data.detailParagraph.includes(place.name) ? 1 : 0)
+    }, 0)
+
+    if (mentionedCount < 2) {
+      issues.push(
+        `detailParagraph must reference at least 2 placesToVisit (referenced ${mentionedCount}/3)`,
+      )
     }
   }
 
   if (issues.length > 0) {
-    return {
-      success: false,
-      error: 'Allowed-name validation failed',
-      issues,
-    }
+    return { success: false, error: 'Allowed-name validation failed', issues }
   }
 
   return { success: true, data }

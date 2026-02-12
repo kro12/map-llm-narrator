@@ -18,6 +18,7 @@ export type NarrationMeta = {
 
   // optional nicety
   fineLabel?: string
+  warnings?: string[]
 }
 
 type NarrationState = {

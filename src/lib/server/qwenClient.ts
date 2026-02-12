@@ -17,6 +17,7 @@ type QwenOptions = {
   model?: string
   temperature?: number
   numPredict?: number
+  numCtx?: number
   stop?: string[]
   keepAlive?: string
   format?: 'json' // Force JSON output mode
@@ -44,6 +45,8 @@ export async function* streamQwen(prompt: string, opts: QwenOptions = {}) {
   const model = opts.model ?? process.env.QWEN_MODEL ?? 'qwen2.5:7b-instruct'
   const temperature = opts.temperature ?? envNumber('QWEN_TEMPERATURE', 0.6)
   const numPredict = opts.numPredict ?? envNumber('QWEN_NUM_PREDICT', 900)
+  const numCtx = opts.numCtx ?? envNumber('QWEN_NUM_CTX', 4096)
+
   const stop = opts.stop ?? ['\nEND']
   const keepAlive = opts.keepAlive ?? '24h'
 
@@ -55,7 +58,7 @@ export async function* streamQwen(prompt: string, opts: QwenOptions = {}) {
     stream: true,
     keep_alive: keepAlive,
     format: opts.format, // 'json' for structured output
-    options: { temperature, num_predict: numPredict, stop },
+    options: { temperature, num_predict: numPredict, num_ctx: numCtx, stop },
     prompt,
   }
 
@@ -116,7 +119,6 @@ export async function* streamQwen(prompt: string, opts: QwenOptions = {}) {
  */
 export async function generateQwenValidated(
   prompt: string,
-  allowedNames: Set<string>,
   opts: QwenGenerateOptions = {},
 ): Promise<NarrationOutput> {
   const maxRetries = opts.maxRetries ?? 3
@@ -181,8 +183,7 @@ export async function generateQwenValidated(
  */
 export async function generateNarration(
   prompt: string,
-  allowedNames: Set<string>,
   opts?: QwenGenerateOptions,
 ): Promise<NarrationOutput> {
-  return generateQwenValidated(prompt, allowedNames, opts)
+  return generateQwenValidated(prompt, opts)
 }
