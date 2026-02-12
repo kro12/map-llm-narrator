@@ -81,8 +81,9 @@ export async function POST(req: Request) {
     }
 
     const point = { lat, lon }
-
+    debug('api/narrate', 'before reverseGeocode/getPoisSafe')
     const [{ geo }, { pois }] = await Promise.all([reverseGeocode(point), getPoisSafe(point)])
+    debug('api/narrate', 'after reverseGeocode/getPoisSafe')
 
     const prompt = buildStructuredPrompt({
       geo,
@@ -123,15 +124,19 @@ export async function POST(req: Request) {
             })}`,
           )
 
+          const allowedNames = new Set([
+            ...pois.attractions.map((p) => p.name),
+            ...pois.food.map((p) => p.name),
+          ])
+
+          debug('api/narrate', 'before generateNarration')
           // Generate structured output with validation and retries
-          debug('api/narrate', 'generating with validation...')
-          const narration: NarrationOutput = await generateNarration(prompt, {
+          const narration: NarrationOutput = await generateNarration(prompt, allowedNames, {
             maxRetries: 3,
             retryDelayMs: 1000,
           })
 
-          debug('api/narrate', 'generation successful', {
-            wordCount: narration.wordCount,
+          debug('api/narrate', 'after generateNarration', {
             placesCount: narration.placesToVisit.length,
           })
 
@@ -142,6 +147,7 @@ export async function POST(req: Request) {
           const words = text.split(/\s+/)
           let buffer = ''
 
+          const t0 = Date.now()
           for (let i = 0; i < words.length; i++) {
             buffer += (i > 0 ? ' ' : '') + words[i]
 
@@ -154,9 +160,10 @@ export async function POST(req: Request) {
               await new Promise((resolve) => setTimeout(resolve, 50))
             }
           }
+          debug('api/narrate', 'after streaming loop', { ms: Date.now() - t0 })
 
           if (buffer) send(buffer)
-
+          debug('api/narrate', 'before END')
           send('END')
           controller.close()
         } catch (e) {
@@ -168,8 +175,10 @@ export async function POST(req: Request) {
               : 'Sorry - task could not be completed for this location. Please try another point.'
 
           send(errorMsg)
+          debug('api/narrate', 'before END in catch block')
           send('END')
           controller.close()
+          debug('api/narrate', 'after close')
         }
       },
     })

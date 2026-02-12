@@ -36,11 +36,6 @@ export const NarrationOutputSchema = z.object({
     culture: z.string().min(10).max(200),
     foodDrink: z.string().min(10).max(200),
   }),
-
-  /**
-   * Total word count for validation (should be 110-150)
-   */
-  wordCount: z.number().int().min(100).max(200),
 })
 
 export type NarrationOutput = z.infer<typeof NarrationOutputSchema>
@@ -116,4 +111,64 @@ export function extractJSON(text: string): unknown {
   }
 
   throw new Error('No valid JSON found in response')
+}
+
+/**
+ * Validate narration AND ensure it only references allowed place names.
+ *
+ * allowedNames:
+ *  - Derived from Attractions + Food & Drink sections
+ *  - Must match exact spelling
+ */
+export function validateNarrationOutputWithAllowedNames(
+  raw: unknown,
+  allowedNames: Set<string>,
+): ValidationResult<NarrationOutput> {
+  const base = validateNarrationOutput(raw)
+
+  if (!base.success) return base
+
+  const data = base.data
+  const issues: string[] = []
+
+  // --- 1. Validate placesToVisit names ---
+  for (const place of data.placesToVisit) {
+    if (!allowedNames.has(place.name)) {
+      issues.push(`placesToVisit contains disallowed name: ${place.name}`)
+    }
+  }
+
+  // --- 2. Validate foodDrink ---
+  // If allowed food names exist, foodDrink must reference at least one of them.
+  if (allowedNames.size > 0) {
+    const mentionsAllowed = Array.from(allowedNames).some((name) =>
+      data.activities.foodDrink.includes(name),
+    )
+
+    const isGeneric =
+      data.activities.foodDrink === 'None found in data' ||
+      data.activities.foodDrink.toLowerCase().includes('none found')
+
+    if (!mentionsAllowed && !isGeneric) {
+      issues.push('activities.foodDrink does not reference any allowed food place')
+    }
+  }
+
+  // --- 3. Validate detailParagraph ---
+  // Ensure that any place mentioned in placesToVisit appears in detailParagraph.
+  for (const place of data.placesToVisit) {
+    if (!data.detailParagraph.includes(place.name)) {
+      issues.push(`detailParagraph does not reference place: ${place.name}`)
+    }
+  }
+
+  if (issues.length > 0) {
+    return {
+      success: false,
+      error: 'Allowed-name validation failed',
+      issues,
+    }
+  }
+
+  return { success: true, data }
 }

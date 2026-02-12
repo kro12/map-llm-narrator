@@ -2,6 +2,7 @@ import { debug, timed } from '@/lib/server/debug'
 import {
   type NarrationOutput,
   validateNarrationOutput,
+  validateNarrationOutputWithAllowedNames,
   extractJSON,
 } from '@/lib/server/narrationSchema'
 
@@ -22,6 +23,7 @@ type QwenOptions = {
 }
 
 type QwenGenerateOptions = QwenOptions & {
+  allowedNames?: Set<string>
   maxRetries?: number
   retryDelayMs?: number
 }
@@ -114,6 +116,7 @@ export async function* streamQwen(prompt: string, opts: QwenOptions = {}) {
  */
 export async function generateQwenValidated(
   prompt: string,
+  allowedNames: Set<string>,
   opts: QwenGenerateOptions = {},
 ): Promise<NarrationOutput> {
   const maxRetries = opts.maxRetries ?? 3
@@ -140,10 +143,12 @@ export async function generateQwenValidated(
       const parsed = extractJSON(rawResponse)
 
       // Validate against schema
-      const validation = validateNarrationOutput(parsed)
+      const validation = opts.allowedNames
+        ? validateNarrationOutputWithAllowedNames(parsed, opts.allowedNames)
+        : validateNarrationOutput(parsed)
 
       if (validation.success) {
-        debug('qwen.validated', 'success', { attempt, wordCount: validation.data.wordCount })
+        debug('qwen.validated', 'success', { validationData: validation.data })
         return validation.data
       }
 
@@ -176,7 +181,8 @@ export async function generateQwenValidated(
  */
 export async function generateNarration(
   prompt: string,
+  allowedNames: Set<string>,
   opts?: QwenGenerateOptions,
 ): Promise<NarrationOutput> {
-  return generateQwenValidated(prompt, opts)
+  return generateQwenValidated(prompt, allowedNames, opts)
 }

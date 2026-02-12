@@ -15,6 +15,88 @@ function takeNamed(pois: Poi[], n: number) {
   return pois.filter((p) => p.name && p.name.trim().length > 0).slice(0, n)
 }
 
+function pickDiverseAttractions(attractions: Poi[], n = 3): Poi[] {
+  const candidates = attractions.filter((p) => p.name?.trim().length > 0).slice(0, 20) // keep it cheap
+
+  const buckets: Array<Poi['bucket']> = ['history', 'culture', 'scenic', 'landmark', 'park']
+  const picked: Poi[] = []
+  const used = new Set<string>()
+
+  const takeFromBucket = (bucket: Poi['bucket']) => {
+    const best = candidates.find((p) => p.bucket === bucket && !used.has(p.name.toLowerCase()))
+    if (best) {
+      picked.push(best)
+      used.add(best.name.toLowerCase())
+    }
+  }
+
+  for (const b of buckets) {
+    if (picked.length >= n) break
+    takeFromBucket(b)
+  }
+
+  // Fill remaining with best overall
+  for (const p of candidates) {
+    if (picked.length >= n) break
+    const key = p.name.toLowerCase()
+    if (!used.has(key)) {
+      picked.push(p)
+      used.add(key)
+    }
+  }
+
+  return picked.slice(0, n)
+}
+
+function pickDiverseFood(food: Poi[], n = 6): Poi[] {
+  const candidates = [...food]
+    .filter((p) => p.name?.trim().length > 0)
+    .sort((a, b) => (b.score ?? 0) - (a.score ?? 0) || a.distanceKm - b.distanceKm)
+    .slice(0, 20)
+
+  const picked: Poi[] = []
+  const used = new Set<string>()
+
+  const kinds: Array<NonNullable<Poi['foodKind']>> = ['pub', 'restaurant', 'cafe', 'bar']
+
+  for (const k of kinds) {
+    if (picked.length >= n) break
+    const match = candidates.find((p) => p.foodKind === k && !used.has(p.name.toLowerCase()))
+    if (match) {
+      picked.push(match)
+      used.add(match.name.toLowerCase())
+    }
+  }
+
+  // Fill remaining with best overall
+  for (const p of candidates) {
+    if (picked.length >= n) break
+    const key = p.name.toLowerCase()
+    if (!used.has(key)) {
+      picked.push(p)
+      used.add(key)
+    }
+  }
+
+  return picked.slice(0, n)
+}
+
+function foodLabel(p: Poi) {
+  // Keep it short to avoid token overhead
+  const k = p.foodKind
+  if (k === 'pub') return 'pub'
+  if (k === 'cafe') return 'cafe'
+  if (k === 'restaurant') return 'restaurant'
+  if (k === 'bar') return 'bar'
+  return ''
+}
+
+function foodLine(p: Poi) {
+  const lbl = foodLabel(p)
+  // Add “ — pub/cafe/…” only if known
+  return `${line(p.name, p.distanceKm)}${lbl ? ` — ${lbl}` : ''}`
+}
+
 /**
  * Builds a strict JSON-mode prompt for Qwen
  *
@@ -24,9 +106,9 @@ function takeNamed(pois: Poi[], n: number) {
 export function buildStructuredPrompt(args: { geo: GeoResult; attractions: Poi[]; food: Poi[] }) {
   const { geo, attractions, food } = args
 
-  const topVisit = takeNamed(attractions, 3)
-  const narrativePois = takeNamed(attractions, 2)
-  const topFood = takeNamed(food, 6)
+  const topVisit = pickDiverseAttractions(attractions, 3)
+  const narrativePois = pickDiverseAttractions(attractions, 2)
+  const topFood = pickDiverseFood(food, 6)
 
   // Build fact packet sections
   const narrativeBlock =
@@ -41,7 +123,7 @@ export function buildStructuredPrompt(args: { geo: GeoResult; attractions: Poi[]
 
   const foodBlock =
     topFood.length > 0
-      ? `Food & Drink:\n${topFood.map((p) => `- ${line(p.name, p.distanceKm)}`).join('\n')}`
+      ? `Food & Drink:\n${topFood.map((p) => `- ${foodLine(p)}`).join('\n')}`
       : `Food & Drink:\n- None found in data`
 
   // Schema definition as part of prompt
@@ -58,7 +140,6 @@ export function buildStructuredPrompt(args: { geo: GeoResult; attractions: Poi[]
     "culture": "string (generic, no place names, 10-200 chars)",
     "foodDrink": "string (mention 1-2 names if available, 10-200 chars)"
   },
-  "wordCount": number
 }`
 
   const finishedPrompt = `You are a location guide writer. Generate a JSON object matching this exact schema:
@@ -92,12 +173,10 @@ RULES:
 9. activities.walk: generic walking suggestion (NO place names)
 10. activities.culture: generic cultural suggestion (NO place names)
 11. activities.foodDrink: mention 1-2 specific food places if available, else generic
-12. wordCount: total word count across introParagraph + detailParagraph (should be 110-150)
 
 IMPORTANT:
 - Return ONLY the JSON object, no markdown, no explanation
 - Ensure all strings use normal spaces (not special unicode)
-- Verify wordCount matches actual content
 - If fewer than 3 attractions available, use what's available
 
 Generate the JSON now:`
@@ -124,7 +203,9 @@ export function buildFactPacketPrompt(args: { geo: GeoResult; attractions: Poi[]
 
   const narrativeBlock =
     narrativePois.length > 0
-      ? `Narrative POIs\n- ${narrativePois.map((p) => line(p.name, p.distanceKm)).join('\n- ')}\n`
+      ? `Narrative POIs:\n${narrativePois
+          .map((p) => `- ${line(p.name, p.distanceKm)}${p.hint ? ` — ${p.hint}` : ''}`)
+          .join('\n')}`
       : ''
 
   const attractionsBlock =
