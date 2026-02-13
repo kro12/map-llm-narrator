@@ -43,12 +43,12 @@ export async function* streamQwen(prompt: string, opts: QwenOptions = {}) {
   const url = opts.url ?? process.env.QWEN_URL
   const token = opts.token ?? process.env.TOKEN
   const model = opts.model ?? process.env.QWEN_MODEL ?? 'qwen2.5:7b-instruct'
-  const temperature = opts.temperature ?? envNumber('QWEN_TEMPERATURE', 0.6)
-  const numPredict = opts.numPredict ?? envNumber('QWEN_NUM_PREDICT', 900)
+  const temperature = opts.temperature ?? envNumber('QWEN_TEMPERATURE', 0.2)
+  const numPredict = opts.numPredict ?? envNumber('QWEN_NUM_PREDICT', 350)
   const numCtx = opts.numCtx ?? envNumber('QWEN_NUM_CTX', 4096)
 
   const stop = opts.stop ?? ['\nEND']
-  const keepAlive = opts.keepAlive ?? '24h'
+  const keepAlive = opts.keepAlive ?? '30s'
 
   if (!url) throw new Error('Missing QWEN_URL env var.')
   if (!token) throw new Error('Missing TOKEN env var (Bearer token).')

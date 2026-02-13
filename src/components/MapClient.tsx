@@ -11,6 +11,8 @@ const HOME_VIEW = {
   zoom: 5,
 }
 
+const MIN_ZOOM_TO_ENABLE = 13
+
 export type MapApi = {
   resetView: () => void
   fitToPois: (coords: Array<{ lon: number; lat: number }>) => void
@@ -19,19 +21,18 @@ export type MapApi = {
 export default function MapClient({
   onReady,
   onPreview,
+  onZoomEnd,
 }: {
   onReady?: (api: MapApi) => void
   onPreview?: (dataUrl: string) => void
+  onZoomEnd?: (zoom: number) => void
 }) {
   const containerRef = useRef<HTMLDivElement | null>(null)
   const mapRef = useRef<maplibregl.Map | null>(null)
   const markerRef = useRef<maplibregl.Marker | null>(null)
-  const popupRef = useRef<maplibregl.Popup | null>(null)
 
   const selectPoint = useNarrationStore((s) => s.selectPoint)
-  const startNarration = useNarrationStore((s) => s.startNarration)
 
-  // init map + event wiring (run once)
   useEffect(() => {
     if (!containerRef.current || mapRef.current) return
 
@@ -40,20 +41,16 @@ export default function MapClient({
       style: STYLE_URL,
       center: HOME_VIEW.center,
       zoom: HOME_VIEW.zoom,
-
-      /**
-       * Needed for reliable `canvas.toDataURL()` snapshots.
-       * MapLibre types expose this via canvasContextAttributes.
-       */
       canvasContextAttributes: { preserveDrawingBuffer: true },
     })
 
     map.addControl(new maplibregl.NavigationControl(), 'top-right')
 
-    const clearPopup = () => {
-      popupRef.current?.remove()
-      popupRef.current = null
-    }
+    const emitZoom = () => onZoomEnd?.(map.getZoom())
+    map.on('zoomend', emitZoom)
+
+    // initial emit so UI is correct on load
+    emitZoom()
 
     const ensureMarker = () => {
       if (markerRef.current) return markerRef.current
@@ -69,7 +66,6 @@ export default function MapClient({
       const marker = ensureMarker()
       marker.setLngLat([lng, lat])
 
-      // retrigger pop animation
       const el = marker.getElement()
       el.classList.remove('ml-marker-pop')
       void el.offsetWidth
@@ -81,42 +77,31 @@ export default function MapClient({
         const dataUrl = map.getCanvas().toDataURL('image/png')
         onPreview?.(dataUrl)
       } catch {
-        // ignore snapshot errors (tainted canvas etc.)
+        // ignore snapshot errors
       }
     }
 
-    const openConfirmPopup = (lng: number, lat: number) => {
-      clearPopup()
+    const canSelect = () => map.getZoom() >= MIN_ZOOM_TO_ENABLE
 
-      const el = document.createElement('div')
-      el.className = 'popup-card'
+    const onClick = (e: maplibregl.MapMouseEvent) => {
+      // Block marker placement until user zooms in sufficiently
+      if (!canSelect()) return
 
-      const isBusy = useNarrationStore.getState().status === 'streaming'
+      const { lng, lat } = e.lngLat
+      selectPoint({ lon: lng, lat })
+      setMarker(lng, lat)
 
-      el.innerHTML = `
-        <div class="popup-title">Generate guide?</div>
-        <div class="popup-subtitle">This may take some time.</div>
-        <button id="go" class="popup-btn" ${isBusy ? 'disabled' : ''}>
-          ${isBusy ? 'Generating…' : 'Generate'}
-        </button>
-      `
-
-      el.querySelector('#go')?.addEventListener('click', () => {
-        // Re-check at click time (avoid stale state)
-        if (useNarrationStore.getState().status === 'streaming') return
-
-        clearPopup()
-        capturePreviewBestEffort()
-
-        // startNarration already clears text/meta/error + bumps runId
-        void startNarration()
-      })
-
-      popupRef.current = new maplibregl.Popup({ closeButton: true, closeOnClick: true })
-        .setLngLat([lng, lat])
-        .setDOMContent(el)
-        .addTo(map)
+      // keep preview updated when marker moves
+      capturePreviewBestEffort()
     }
+
+    // Optional: block context menu entirely (we’re moving to the floating panel UX)
+    const onContextMenu = (e: maplibregl.MapMouseEvent) => {
+      e.preventDefault()
+    }
+
+    map.on('click', onClick)
+    map.on('contextmenu', onContextMenu)
 
     onReady?.({
       resetView: () => map.flyTo({ center: HOME_VIEW.center, zoom: HOME_VIEW.zoom, duration: 700 }),
@@ -129,31 +114,13 @@ export default function MapClient({
         )
 
         map.fitBounds(bounds, {
-          padding: { top: 80, bottom: 80, left: 80, right: 460 }, // allow for drawer
+          padding: { top: 80, bottom: 80, left: 80, right: 460 },
           duration: 800,
         })
       },
     })
 
-    const onClick = (e: maplibregl.MapMouseEvent) => {
-      clearPopup()
-      const { lng, lat } = e.lngLat
-      selectPoint({ lon: lng, lat })
-      setMarker(lng, lat)
-    }
-
-    const onContextMenu = (e: maplibregl.MapMouseEvent) => {
-      e.preventDefault()
-      const { lng, lat } = e.lngLat
-      selectPoint({ lon: lng, lat })
-      setMarker(lng, lat)
-      openConfirmPopup(lng, lat)
-    }
-
-    map.on('click', onClick)
-    map.on('contextmenu', onContextMenu)
-
-    // long-press confirm (mobile)
+    // long-press selection (mobile) — also gated by zoom
     const canvas = map.getCanvasContainer()
     let pressTimer: number | null = null
     let pressStart: { x: number; y: number } | null = null
@@ -166,11 +133,15 @@ export default function MapClient({
 
     const onTouchStart = (ev: TouchEvent) => {
       if (ev.touches.length !== 1) return
-      const t = ev.touches[0]
-      pressStart = { x: t.clientX, y: t.clientY }
+      pressStart = { x: ev.touches[0].clientX, y: ev.touches[0].clientY }
 
       pressTimer = window.setTimeout(() => {
         if (!pressStart) return
+        if (!canSelect()) {
+          clearPress()
+          return
+        }
+
         const rect = canvas.getBoundingClientRect()
         const point = { x: pressStart.x - rect.left, y: pressStart.y - rect.top }
         const lngLat = map.unproject([point.x, point.y])
@@ -180,7 +151,7 @@ export default function MapClient({
 
         selectPoint({ lon: lng, lat })
         setMarker(lng, lat)
-        openConfirmPopup(lng, lat)
+        capturePreviewBestEffort()
         clearPress()
       }, 600)
     }
@@ -211,13 +182,13 @@ export default function MapClient({
 
       map.off('click', onClick)
       map.off('contextmenu', onContextMenu)
+      map.off('zoomend', emitZoom)
 
-      clearPopup()
       markerRef.current?.remove()
       map.remove()
       mapRef.current = null
     }
-  }, [onReady, onPreview, selectPoint, startNarration])
+  }, [onReady, onPreview, onZoomEnd, selectPoint])
 
   return <div ref={containerRef} className="h-full w-full" />
 }

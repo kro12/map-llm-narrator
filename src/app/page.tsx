@@ -15,6 +15,8 @@ import { useNarrationStore } from '@/lib/store/narrationStore'
 import Button from '@mui/material/Button'
 import Stack from '@mui/material/Stack'
 
+const MIN_ZOOM_TO_ENABLE = 13
+
 function escapeRegex(s: string) {
   return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
 }
@@ -96,9 +98,10 @@ function ImageCard(props: {
 }
 
 export default function Home() {
-  const { status, text, error, reset, cancelNarration } = useNarrationStore()
+  const { status, text, error, reset, cancelNarration, startNarration } = useNarrationStore()
   const meta = useNarrationStore((s) => s.meta)
   const runId = useNarrationStore((s) => s.runId)
+  const selected = useNarrationStore((s) => s.selected)
 
   const [mapApi, setMapApi] = useState<MapApi | null>(null)
 
@@ -106,6 +109,13 @@ export default function Home() {
   const [wikiSrc, setWikiSrc] = useState<string | null>(null)
   const [wikiLoading, setWikiLoading] = useState(false)
   const [wikiTried, setWikiTried] = useState(false)
+
+  // NEW: zoom gating state
+  const [zoom, setZoom] = useState<number>(0)
+  const zoomOk = zoom >= MIN_ZOOM_TO_ENABLE
+
+  // NEW: cue when zoom threshold is crossed
+  const [zoomUnlockedCue, setZoomUnlockedCue] = useState(false)
 
   // NEW: simple fade-in state for narration body (no typewriter)
   const [fadeIn, setFadeIn] = useState(false)
@@ -116,6 +126,18 @@ export default function Home() {
   const handleMapReady = useCallback((api: MapApi) => setMapApi(api), [])
   const handlePreview = useCallback((dataUrl: string) => setPreviewSrc(dataUrl), [])
 
+  const handleZoomEnd = useCallback((z: number) => {
+    setZoom((prev) => {
+      const wasOk = prev >= MIN_ZOOM_TO_ENABLE
+      const nowOk = z >= MIN_ZOOM_TO_ENABLE
+      if (!wasOk && nowOk) {
+        setZoomUnlockedCue(true)
+        window.setTimeout(() => setZoomUnlockedCue(false), 700)
+      }
+      return z
+    })
+  }, [])
+
   // Use the store text directly (no client-side “typing”)
   const displayText = text ?? ''
 
@@ -124,15 +146,11 @@ export default function Home() {
     setWikiSrc(null)
     setWikiLoading(false)
     setWikiTried(false)
-
-    // NEW: reset fade-in for a new run
     setFadeIn(false)
   }, [runId])
 
-  // NEW: trigger fade-in the first time we get non-empty narration text for this run
   useEffect(() => {
     if (!displayText) return
-    // set next tick to ensure CSS transitions apply
     const t = setTimeout(() => setFadeIn(true), 0)
     return () => clearTimeout(t)
   }, [displayText])
@@ -171,8 +189,6 @@ export default function Home() {
 
   const handleClose = () => {
     reset()
-    // keep previewSrc so you don't lose the fallback image immediately
-    // setPreviewSrc(null)
     setWikiSrc(null)
     setWikiLoading(false)
     setWikiTried(false)
@@ -201,21 +217,49 @@ export default function Home() {
   const imageNote =
     !wikiLoading && wikiTried && !wikiSrc && previewSrc ? 'No wiki photo found' : null
 
+  // Floating panel logic
+  const canGenerate = zoomOk && !!selected && status !== 'streaming'
+  const panelTitle = 'Map Guide'
+  const panelHint = !zoomOk
+    ? `Zoom in to level ${MIN_ZOOM_TO_ENABLE}+ to enable the Map Guide.`
+    : !selected
+      ? 'Click a point on the map to place a marker and enable Generate.'
+      : 'Ready — click Generate to create your guide.'
+
+  const handleGenerate = async () => {
+    if (!canGenerate) return
+    // startNarration handles resetting state + runId bump
+    await startNarration()
+  }
+
   return (
     <main className="h-screen w-screen relative overflow-hidden">
       <div className="absolute inset-0">
-        <MapClient onReady={handleMapReady} onPreview={handlePreview} />
+        <MapClient onReady={handleMapReady} onPreview={handlePreview} onZoomEnd={handleZoomEnd} />
       </div>
 
-      <div className="absolute top-4 left-4 z-10 bg-white text-slate-900 rounded-xl border shadow-sm px-4 py-3 max-w-xs space-y-2">
-        <div className="font-semibold text-base">Map Guide</div>
-        <div className="text-xs text-slate-600">
-          Left click selects. Right click (or long-press) to generate location guide.
+      {/* Floating panel (replaces right-click generate) */}
+      <div
+        className={[
+          'absolute top-4 left-4 z-10 bg-white text-slate-900 rounded-xl border shadow-sm',
+          'px-4 py-3 max-w-xs space-y-2',
+          zoomUnlockedCue ? 'animate-bounce' : '',
+        ].join(' ')}
+      >
+        <div className="flex items-center justify-between gap-3">
+          <div className="font-semibold text-base">{panelTitle}</div>
+          <div className="text-[11px] text-slate-500">Zoom: {zoom.toFixed(1)}</div>
         </div>
 
-        <Stack direction="row" spacing={1}>
+        <div className="text-xs text-slate-600">{panelHint}</div>
+
+        <Stack direction="row" spacing={1} sx={{ pt: 0.5 }}>
           <Button variant="outlined" size="small" onClick={() => mapApi?.resetView()}>
             Reset view
+          </Button>
+
+          <Button variant="contained" size="small" disabled={!canGenerate} onClick={handleGenerate}>
+            {status === 'streaming' ? 'Generating…' : 'Generate'}
           </Button>
         </Stack>
       </div>
@@ -265,7 +309,6 @@ export default function Home() {
             ) : status === 'streaming' && !displayText ? (
               <Skeleton />
             ) : (
-              // fade-in wrapper for the narration content
               <div
                 className={[
                   'space-y-3 whitespace-pre-wrap',
@@ -283,7 +326,6 @@ export default function Home() {
                     >
                       <div className="leading-relaxed">
                         {highlightPlaceNames(block, placeNames)}
-                        {/* Optional caret while streaming (kept for UX continuity) */}
                         {status === 'streaming' && isLast && displayText && (
                           <span className="inline-block align-baseline opacity-70 caret-blink">
                             ▍
@@ -296,10 +338,13 @@ export default function Home() {
               </div>
             )}
           </div>
-          {meta?.warnings?.length ? (
-            <div className="text-xs text-amber-600 mb-2">{meta.warnings[0]}</div>
-          ) : null}
-          <div className="p-3 border-t text-xs text-slate-500">Status: {status}</div>
+
+          <div className="p-3 border-t text-xs text-slate-500">
+            Status: {status}
+            {meta?.warnings?.length ? (
+              <div className="text-xs text-amber-600 mb-2">{meta.warnings[0]}</div>
+            ) : null}
+          </div>
         </div>
       </aside>
     </main>
