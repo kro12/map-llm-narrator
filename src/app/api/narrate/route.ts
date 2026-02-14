@@ -2,8 +2,8 @@ export const runtime = 'nodejs'
 
 import { reverseGeocode } from '@/lib/server/geoResolver'
 import { getPoisSafe } from '@/lib/server/poiResolver'
-import { buildStructuredPrompt } from '@/lib/server/promptBuilder'
-import { generateNarration } from '@/lib/server/qwenClient'
+import { buildStructuredPrompt } from '@/lib/server/llm/promptBuilder'
+import { generateNarration } from '@/lib/server/llm/qwenClient'
 import type { NarrationOutput } from '@/lib/server/narrationSchema'
 import { httpDebug } from '@/lib/server/httpDebug'
 import { debug } from '@/lib/server/debug'
@@ -84,6 +84,7 @@ export async function POST(req: Request) {
     const [{ geo }, { pois }] = await Promise.all([reverseGeocode(point), getPoisSafe(point)])
     debug('api/narrate', 'after reverseGeocode/getPoisSafe')
 
+    // ***** it seems to send back selected POIS, the selection logic needs to be lifted to this level first, from `buildStructuredPrompt` *****
     const prompt = buildStructuredPrompt({
       geo,
       attractions: pois.attractions,
