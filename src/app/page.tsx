@@ -223,8 +223,8 @@ export default function Home() {
   const panelHint = !zoomOk
     ? `Zoom in to level ${MIN_ZOOM_TO_ENABLE}+ to enable the Map Guide.`
     : !selected
-      ? 'Click a point on the map to place a marker and enable Generate.'
-      : 'Ready — click Generate to create your guide.'
+      ? 'Right-click a point on the map to place a marker and enable Generate.'
+      : 'Ready - click Generate to create your guide.'
 
   const handleGenerate = async () => {
     if (!canGenerate) return

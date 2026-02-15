@@ -1,5 +1,5 @@
 import { create } from 'zustand'
-import type { LatLon } from '@/lib/shared/types'
+import type { LatLon, Poi } from '@/lib/shared/types'
 
 type Status = 'idle' | 'streaming' | 'done' | 'error'
 
@@ -7,6 +7,10 @@ export type NarrationMeta = {
   label?: string
   context?: string
   wikiCandidates?: string[]
+  curatedPOIs?: {
+    selectedEateries: Poi[]
+    selectedAttractions: Poi[]
+  }
 
   // backward compat / debugging
   location?: string

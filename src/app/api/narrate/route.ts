@@ -5,6 +5,7 @@ import { getPoisSafe } from '@/lib/server/poiResolver'
 import { buildStructuredPrompt } from '@/lib/server/llm/promptBuilder'
 import { generateNarration } from '@/lib/server/llm/qwenClient'
 import type { NarrationOutput } from '@/lib/server/narrationSchema'
+import { pickDiverseAttractions, pickDiverseFood } from '@/lib/server/llm/utils'
 import { httpDebug } from '@/lib/server/httpDebug'
 import { debug } from '@/lib/server/debug'
 
@@ -32,11 +33,11 @@ function narrationToText(narration: NarrationOutput): string {
 
   return `${introParagraph}
 
-${detailParagraph}
+        ${detailParagraph}
 
-${placesLine}
+        ${placesLine}
 
-${bullets}`
+        ${bullets}`
 }
 
 export async function POST(req: Request) {
@@ -84,11 +85,14 @@ export async function POST(req: Request) {
     const [{ geo }, { pois }] = await Promise.all([reverseGeocode(point), getPoisSafe(point)])
     debug('api/narrate', 'after reverseGeocode/getPoisSafe')
 
+    const selectedAttractions = pickDiverseAttractions(pois.attractions)
+    const selectedEateries = pickDiverseFood(pois.food)
+
     // ***** it seems to send back selected POIS, the selection logic needs to be lifted to this level first, from `buildStructuredPrompt` *****
     const prompt = buildStructuredPrompt({
       geo,
-      attractions: pois.attractions,
-      food: pois.food,
+      attractions: selectedAttractions,
+      food: selectedEateries,
     })
 
     debug('api/narrate', 'structured prompt length', prompt.length)
@@ -122,6 +126,7 @@ export async function POST(req: Request) {
                 geo.region,
                 geo.country,
               ].filter(Boolean),
+              curatedPOIs: { selectedEateries, selectedAttractions },
               // Optional: surface warnings to UI if you want
               warnings: pois.warnings ?? [],
             })}`,
