@@ -3,7 +3,7 @@ export const runtime = 'nodejs'
 import { reverseGeocode } from '@/lib/server/geoResolver'
 import { getPoisSafe } from '@/lib/server/poiResolver'
 import { buildStructuredPrompt } from '@/lib/server/llm/promptBuilder'
-import { generateNarration } from '@/lib/server/llm/qwenClient'
+import { generateNarration } from '@/lib/server/llm/llmClient'
 import type { NarrationOutput } from '@/lib/server/narrationSchema'
 import { pickDiverseAttractions, pickDiverseFood } from '@/lib/server/llm/utils'
 import { httpDebug } from '@/lib/server/httpDebug'
@@ -30,14 +30,8 @@ function narrationToText(narration: NarrationOutput): string {
     `- Culture: ${activities.culture}`,
     `- Food/Drink: ${activities.foodDrink}`,
   ].join('\n')
-
-  return `${introParagraph}
-
-        ${detailParagraph}
-
-        ${placesLine}
-
-        ${bullets}`
+  // make the output stable regardless of client-side rendering rules
+  return [introParagraph, '', detailParagraph, '', placesLine, '', bullets].join('\n')
 }
 
 export async function POST(req: Request) {
@@ -150,7 +144,7 @@ export async function POST(req: Request) {
           })
 
           debug('api/narrate', 'before generateNarration')
-
+          const llmStart = performance.now()
           // Strict mode when POIs exist:
           //   - Enforce allowed-name validation
           // Relaxed mode when POIs are empty:
@@ -161,6 +155,8 @@ export async function POST(req: Request) {
             maxRetries: 3,
             retryDelayMs: 1000,
           })
+          const llmDurationMs = Math.round(performance.now() - llmStart)
+          debug('api/narrate', 'LLM roundtrip duration', llmDurationMs)
 
           debug('api/narrate', 'after generateNarration', {
             placesCount: narration.placesToVisit.length,

@@ -14,8 +14,11 @@ export type PoisResult = {
 const POIS_BUDGET_MS = (() => {
   const raw = process.env.POIS_BUDGET_MS
   const n = raw ? Number(raw) : NaN
-  return Number.isFinite(n) ? n : 10_000
+  return Number.isFinite(n) ? n : 19_000 // Increased from 10s to 19s
 })()
+
+// Per-query timeout - much shorter than total budget
+const PER_QUERY_TIMEOUT_MS = 8000 // 8 seconds per query max
 
 /**
  * Safe wrapper: never throw POI errors to the caller.
@@ -74,91 +77,94 @@ export async function getPois(point: LatLon): Promise<{
         ] as const
 
         const budgetStart = Date.now()
-        const budgetAbort = new AbortController()
-        const budgetTimer = setTimeout(() => budgetAbort.abort(), POIS_BUDGET_MS)
-
         let lastError: Error | null = null
 
-        try {
-          for (const strategy of strategies) {
-            const elapsed = Date.now() - budgetStart
-            if (elapsed >= POIS_BUDGET_MS) {
-              budgetExceeded = true
-              debug('overpass', 'budget exceeded before trying strategy', {
-                elapsedMs: elapsed,
-                strategy: strategy.name,
-              })
-              break
-            }
-
-            try {
-              debug('overpass', `trying ${strategy.name} strategy`, strategy)
-
-              const attractionsQuery = buildAttractionQuery(rounded, strategy.attractionRadius)
-              const foodQuery = buildFoodQuery(rounded, strategy.foodRadius)
-
-              const remaining = Math.max(1000, POIS_BUDGET_MS - (Date.now() - budgetStart))
-
-              // Fetch both in parallel, allow one to succeed even if other fails
-              const [attRes, foodRes] = await Promise.allSettled([
-                timed('overpass.attractions', () =>
-                  fetchOverpass(attractionsQuery, remaining, budgetAbort.signal),
-                ),
-                timed('overpass.food', () =>
-                  fetchOverpass(foodQuery, remaining, budgetAbort.signal),
-                ),
-              ])
-
-              const attractions =
-                attRes.status === 'fulfilled'
-                  ? elementsToPois(rounded, 'attraction', attRes.value.elements).slice(0, 25)
-                  : []
-
-              const food =
-                foodRes.status === 'fulfilled'
-                  ? elementsToPois(rounded, 'food', foodRes.value.elements).slice(0, 25)
-                  : []
-
-              debug('overpass', `${strategy.name} strategy complete`, {
-                attractions: attractions.length,
-                food: food.length,
-                attractionsOk: attRes.status === 'fulfilled',
-                foodOk: foodRes.status === 'fulfilled',
-              })
-
-              // If we got results, return them
-              if (attractions.length > 0 || food.length > 0) {
-                return { attractions, food }
-              }
-
-              // Both queries returned empty - try next strategy
-              lastError = new Error(`${strategy.name} strategy returned no POIs`)
-            } catch (error) {
-              // If budget abort fired, stop trying strategies
-              if (budgetAbort.signal.aborted) {
-                budgetExceeded = true
-                debug('overpass', 'budget abort during strategy', {
-                  elapsedMs: Date.now() - budgetStart,
-                  strategy: strategy.name,
-                })
-                throw error
-              }
-
-              lastError = error instanceof Error ? error : new Error(String(error))
-              debug('overpass', `${strategy.name} strategy failed`, lastError.message)
-
-              // Brief delay before next strategy (but not after minimal)
-              if (strategy.name !== 'minimal') {
-                await new Promise((resolve) => setTimeout(resolve, 500))
-              }
-            }
+        for (const strategy of strategies) {
+          const elapsed = Date.now() - budgetStart
+          if (elapsed >= POIS_BUDGET_MS) {
+            budgetExceeded = true
+            debug('overpass', 'budget exceeded before trying strategy', {
+              elapsedMs: elapsed,
+              strategy: strategy.name,
+            })
+            break
           }
 
-          // All strategies failed
-          throw lastError ?? new Error('All strategies failed to find POIs')
-        } finally {
-          clearTimeout(budgetTimer)
+          try {
+            debug('overpass', `trying ${strategy.name} strategy`, strategy)
+
+            const attractionsQuery = buildAttractionQuery(rounded, strategy.attractionRadius)
+            const foodQuery = buildFoodQuery(rounded, strategy.foodRadius)
+
+            // Use fixed per-query timeout, not remaining budget
+            // This ensures both queries together take max ~12s, leaving room for fallback
+            const queryTimeout = PER_QUERY_TIMEOUT_MS
+
+            // Fetch both in parallel, allow partial success
+            const [attRes, foodRes] = await Promise.allSettled([
+              timed('overpass.attractions', () => fetchOverpass(attractionsQuery, queryTimeout)),
+              timed('overpass.food', () => fetchOverpass(foodQuery, queryTimeout)),
+            ])
+
+            const attractions =
+              attRes.status === 'fulfilled'
+                ? elementsToPois(rounded, 'attraction', attRes.value.elements).slice(0, 25)
+                : []
+
+            const food =
+              foodRes.status === 'fulfilled'
+                ? elementsToPois(rounded, 'food', foodRes.value.elements).slice(0, 25)
+                : []
+
+            const attractionsOk = attRes.status === 'fulfilled'
+            const foodOk = foodRes.status === 'fulfilled'
+
+            debug('overpass', `${strategy.name} strategy complete`, {
+              attractions: attractions.length,
+              food: food.length,
+              attractionsOk,
+              foodOk,
+            })
+
+            // Accept partial results: if we got EITHER attractions OR food, use them
+            if (attractions.length > 0 || food.length > 0) {
+              return { attractions, food }
+            }
+
+            // Both queries returned empty OR both failed - try next strategy
+            const reasons = []
+            if (!attractionsOk && attRes.status === 'rejected') {
+              reasons.push(`attractions: ${attRes.reason}`)
+            }
+            if (!foodOk && foodRes.status === 'rejected') {
+              reasons.push(`food: ${foodRes.reason}`)
+            }
+
+            lastError = new Error(
+              `${strategy.name} strategy failed: ${reasons.length > 0 ? reasons.join(', ') : 'no POIs found'}`,
+            )
+
+            debug('overpass', `${strategy.name} strategy unsuccessful, trying next`, {
+              reason: lastError.message,
+            })
+
+            // Brief delay before next strategy (but not after minimal)
+            if (strategy.name !== 'minimal') {
+              await new Promise((resolve) => setTimeout(resolve, 300))
+            }
+          } catch (error) {
+            lastError = error instanceof Error ? error : new Error(String(error))
+            debug('overpass', `${strategy.name} strategy error`, lastError.message)
+
+            // Brief delay before next strategy
+            if (strategy.name !== 'minimal') {
+              await new Promise((resolve) => setTimeout(resolve, 300))
+            }
+          }
         }
+
+        // All strategies failed
+        throw lastError ?? new Error('All strategies failed to find POIs')
       },
     )
 

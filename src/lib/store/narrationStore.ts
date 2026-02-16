@@ -44,6 +44,7 @@ function parseSseEventData(eventBlock: string): string | null {
   const dataLines = eventBlock
     .split('\n')
     .filter((l) => l.startsWith('data:'))
+    // keep everything after "data:"; spec allows optional leading space
     .map((l) => l.replace(/^data:\s?/, ''))
 
   if (dataLines.length === 0) return null
@@ -79,13 +80,15 @@ export const useNarrationStore = create<NarrationState>((set, get) => ({
       return
     }
 
-    // If you prefer "restart" behaviour, remove this guard and keep cancel+restart.
+    // For "restart" behaviour remove this guard and keep cancel+restart.
     if (status === 'streaming') return
 
     // Cancel any existing stream first (safety)
     get().cancelNarration()
 
     const ac = new AbortController()
+
+    const startTime = performance.now() // Start timer
 
     // New run: clear output immediately and bump runId for UI
     set((s) => ({
@@ -96,6 +99,9 @@ export const useNarrationStore = create<NarrationState>((set, get) => ({
       error: null,
       abortController: ac,
     }))
+
+    const timeoutMs = 180_000
+    const timeout = setTimeout(() => ac.abort(), timeoutMs)
 
     try {
       const res = await fetch('/api/narrate', {
@@ -135,13 +141,19 @@ export const useNarrationStore = create<NarrationState>((set, get) => ({
             set({ status: 'done', abortController: null })
             return
           }
-
-          set((s) => ({ text: s.text + data }))
+          // add exactly one newline between events (otherwise multiple SSE events will run together)
+          set((s) => ({ text: s.text ? `${s.text}\n${data}` : data }))
         }
       }
+      const endTime = performance.now()
+      const durationMs = Math.round(endTime - startTime)
+      console.log('llm call duration', durationMs)
 
       set({ status: 'done', abortController: null })
     } catch (err) {
+      const endTime = performance.now()
+      const durationMs = Math.round(endTime - startTime)
+      console.log('llm call duration', durationMs)
       if (err instanceof DOMException && err.name === 'AbortError') {
         set({ status: 'idle', abortController: null })
         return
@@ -152,6 +164,8 @@ export const useNarrationStore = create<NarrationState>((set, get) => ({
         error: err instanceof Error ? err.message : 'Unknown error',
         abortController: null,
       })
+    } finally {
+      clearTimeout(timeout)
     }
   },
 

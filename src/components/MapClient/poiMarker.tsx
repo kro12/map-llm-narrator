@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from 'react'
 import maplibregl from 'maplibre-gl'
 import * as Popover from '@radix-ui/react-popover'
 import type { Poi } from '@/lib/shared/types'
+import { getMarkerIcon, getMarkerColor } from './markerIcons'
 
 type PoiMarkerProps = {
   poi: Poi
@@ -12,53 +13,58 @@ type PoiMarkerProps = {
 }
 
 /**
- * Get marker style based on POI category.
- */
-function getMarkerStyle(poi: Poi): { color: string; icon: string } {
-  if (poi.category === 'food') {
-    switch (poi.foodKind) {
-      case 'restaurant':
-        return { color: '#ef4444', icon: '🍽️' }
-      case 'cafe':
-        return { color: '#f59e0b', icon: '☕' }
-      case 'pub':
-        return { color: '#f97316', icon: '🍺' }
-      case 'bar':
-        return { color: '#ec4899', icon: '🍸' }
-      default:
-        return { color: '#ef4444', icon: '🍴' }
-    }
-  }
-
-  // Attractions
-  switch (poi.bucket) {
-    case 'culture':
-      return { color: '#8b5cf6', icon: '🎨' }
-    case 'history':
-      return { color: '#6366f1', icon: '🏛️' }
-    case 'scenic':
-      return { color: '#06b6d4', icon: '🌄' }
-    case 'park':
-      return { color: '#10b981', icon: '🌳' }
-    default:
-      return { color: '#3b82f6', icon: '📍' }
-  }
-}
-
-/**
  * React component for a single POI marker with popover.
+ * Minimal design matching the clean UI aesthetic.
  */
 export function PoiMarker({ poi, map, animationDelay }: PoiMarkerProps) {
   const markerRef = useRef<maplibregl.Marker | null>(null)
   const containerRef = useRef<HTMLDivElement>(null)
   const [isOpen, setIsOpen] = useState(false)
+  const closeTimeoutRef = useRef<number | null>(null)
 
-  const { color, icon } = getMarkerStyle(poi)
+  const icon = getMarkerIcon(poi)
+  const color = getMarkerColor(poi)
   const categoryLabel = poi.category === 'food' ? poi.foodKind : poi.bucket
   const distanceText =
     poi.distanceKm < 1
       ? `${Math.round(poi.distanceKm * 1000)}m away`
       : `${poi.distanceKm.toFixed(1)}km away`
+
+  // Clear any pending close timeout
+  const cancelClose = () => {
+    if (closeTimeoutRef.current) {
+      window.clearTimeout(closeTimeoutRef.current)
+      closeTimeoutRef.current = null
+    }
+  }
+
+  // Schedule closing the popover
+  const scheduleClose = () => {
+    cancelClose()
+    closeTimeoutRef.current = window.setTimeout(() => {
+      setIsOpen(false)
+      closeTimeoutRef.current = null
+    }, 300) // 300ms delay
+  }
+
+  // Handle marker hover
+  const handleMarkerEnter = () => {
+    cancelClose()
+    setIsOpen(true)
+  }
+
+  const handleMarkerLeave = () => {
+    scheduleClose()
+  }
+
+  // Handle popover hover
+  const handlePopoverEnter = () => {
+    cancelClose()
+  }
+
+  const handlePopoverLeave = () => {
+    scheduleClose()
+  }
 
   useEffect(() => {
     if (!containerRef.current) return
@@ -76,6 +82,7 @@ export function PoiMarker({ poi, map, animationDelay }: PoiMarkerProps) {
     return () => {
       marker.remove()
       markerRef.current = null
+      cancelClose()
     }
   }, [map, poi.lon, poi.lat])
 
@@ -85,36 +92,33 @@ export function PoiMarker({ poi, map, animationDelay }: PoiMarkerProps) {
         <div
           ref={containerRef}
           className="poi-marker-container"
-          onMouseEnter={() => setIsOpen(true)}
-          onMouseLeave={() => setIsOpen(false)}
+          onMouseEnter={handleMarkerEnter}
+          onMouseLeave={handleMarkerLeave}
         >
           <div
             className="poi-marker-inner"
             style={{
-              width: '40px',
-              height: '40px',
-              backgroundColor: color,
-              border: '3px solid white',
+              width: '36px',
+              height: '36px',
+              backgroundColor: 'white',
+              border: `1.5px solid ${color}`,
               borderRadius: '50%',
               display: 'flex',
               alignItems: 'center',
               justifyContent: 'center',
-              fontSize: '20px',
+              color: color,
               cursor: 'pointer',
-              boxShadow:
-                '0 4px 6px -1px rgba(0, 0, 0, 0.3), 0 2px 4px -1px rgba(0, 0, 0, 0.2)',
-              transition: 'transform 0.2s ease, box-shadow 0.2s ease',
+              boxShadow: '0 2px 8px rgba(0, 0, 0, 0.12)',
+              transition: 'all 0.2s ease',
               animation: `poi-marker-drop 0.6s ease-out ${animationDelay}ms both`,
             }}
             onMouseEnter={(e) => {
-              e.currentTarget.style.transform = 'scale(1.15)'
-              e.currentTarget.style.boxShadow =
-                '0 10px 15px -3px rgba(0, 0, 0, 0.4), 0 4px 6px -2px rgba(0, 0, 0, 0.3)'
+              e.currentTarget.style.transform = 'scale(1.1)'
+              e.currentTarget.style.boxShadow = '0 4px 12px rgba(0, 0, 0, 0.16)'
             }}
             onMouseLeave={(e) => {
               e.currentTarget.style.transform = 'scale(1)'
-              e.currentTarget.style.boxShadow =
-                '0 4px 6px -1px rgba(0, 0, 0, 0.3), 0 2px 4px -1px rgba(0, 0, 0, 0.2)'
+              e.currentTarget.style.boxShadow = '0 2px 8px rgba(0, 0, 0, 0.12)'
             }}
           >
             {icon}
@@ -125,35 +129,50 @@ export function PoiMarker({ poi, map, animationDelay }: PoiMarkerProps) {
       <Popover.Portal>
         <Popover.Content
           className="poi-popover-content"
-          sideOffset={8}
+          sideOffset={12}
           side="top"
           align="center"
-          onMouseEnter={() => setIsOpen(true)}
-          onMouseLeave={() => setIsOpen(false)}
+          onMouseEnter={handlePopoverEnter}
+          onMouseLeave={handlePopoverLeave}
           style={{
             backgroundColor: 'white',
+            border: '1px solid #e5e7eb',
             borderRadius: '8px',
-            padding: '12px',
+            padding: '12px 14px',
             minWidth: '200px',
-            boxShadow:
-              '0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05)',
+            maxWidth: '280px',
+            boxShadow: '0 4px 12px rgba(0, 0, 0, 0.08), 0 0 1px rgba(0, 0, 0, 0.1)',
             zIndex: 1000,
           }}
         >
-          <div style={{ fontWeight: 600, fontSize: '15px', marginBottom: '6px', color: '#1f2937' }}>
+          <div
+            style={{
+              fontWeight: 500,
+              fontSize: '14px',
+              lineHeight: '1.4',
+              marginBottom: '6px',
+              color: '#18181b',
+            }}
+          >
             {poi.name}
           </div>
           <div
             style={{
-              fontSize: '13px',
-              color: '#6b7280',
+              fontSize: '12px',
+              color: '#71717a',
               textTransform: 'capitalize',
-              marginBottom: '4px',
+              marginBottom: '2px',
             }}
           >
             {categoryLabel}
           </div>
-          <div style={{ fontSize: '12px', color: '#9ca3af', marginBottom: '8px' }}>
+          <div
+            style={{
+              fontSize: '12px',
+              color: '#a1a1aa',
+              marginBottom: poi.osmUrl ? '10px' : '0',
+            }}
+          >
             {distanceText}
           </div>
           {poi.osmUrl && (
@@ -162,28 +181,32 @@ export function PoiMarker({ poi, map, animationDelay }: PoiMarkerProps) {
               target="_blank"
               rel="noopener noreferrer"
               style={{
-                display: 'inline-block',
-                padding: '4px 8px',
-                backgroundColor: '#3b82f6',
-                color: 'white',
+                display: 'inline-flex',
+                alignItems: 'center',
+                padding: '6px 10px',
+                backgroundColor: 'white',
+                color: '#18181b',
                 fontSize: '12px',
+                fontWeight: 500,
                 textDecoration: 'none',
-                borderRadius: '4px',
-                transition: 'background-color 0.2s',
+                border: '1px solid #e5e7eb',
+                borderRadius: '6px',
+                transition: 'all 0.15s ease',
               }}
               onMouseEnter={(e) => {
-                e.currentTarget.style.backgroundColor = '#2563eb'
+                e.currentTarget.style.backgroundColor = '#f9fafb'
+                e.currentTarget.style.borderColor = '#d1d5db'
               }}
               onMouseLeave={(e) => {
-                e.currentTarget.style.backgroundColor = '#3b82f6'
+                e.currentTarget.style.backgroundColor = 'white'
+                e.currentTarget.style.borderColor = '#e5e7eb'
               }}
             >
               View on OpenStreetMap →
             </a>
           )}
           <Popover.Arrow
-            className="poi-popover-arrow"
-            style={{ fill: 'white' }}
+            style={{ fill: 'white', filter: 'drop-shadow(0 -1px 1px rgba(0, 0, 0, 0.05))' }}
           />
         </Popover.Content>
       </Popover.Portal>

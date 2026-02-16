@@ -16,18 +16,7 @@ export function setupClickHandler({
 }): () => void {
   const canSelect = () => map.getZoom() >= MIN_ZOOM_TO_ENABLE
 
-  // const onClick = (e: maplibregl.MapMouseEvent) => {
-  //   // Block marker placement until user zooms in
-  //   if (!canSelect()) return
-
-  //   const { lng, lat } = e.lngLat
-  //   selectPoint({ lon: lng, lat })
-  //   setMarker(markerRef, map, lng, lat)
-  //   capturePreview(map, onPreview)
-  // }
-
-  // Block context menu (using floating panel UX instead)
-  const onContextMenu = (e: maplibregl.MapMouseEvent) => {
+  const onClick = (e: maplibregl.MapMouseEvent) => {
     // Block marker placement until user zooms in
     if (!canSelect()) return
 
@@ -35,14 +24,25 @@ export function setupClickHandler({
     selectPoint({ lon: lng, lat })
     setMarker(markerRef, map, lng, lat)
     capturePreview(map, onPreview)
-    // e.preventDefault()
   }
 
-  // map.on('click', onClick)
-  map.on('contextmenu', onContextMenu)
+  // Block context menu (using floating panel UX instead)
+  // const onContextMenu = (e: maplibregl.MapMouseEvent) => {
+  //   // Block marker placement until user zooms in
+  //   if (!canSelect()) return
+
+  //   const { lng, lat } = e.lngLat
+  //   selectPoint({ lon: lng, lat })
+  //   setMarker(markerRef, map, lng, lat)
+  //   capturePreview(map, onPreview)
+  //   // e.preventDefault()
+  // }
+
+  map.on('click', onClick)
+  // map.on('contextmenu', onContextMenu)
 
   return () => {
-    // map.off('click', onClick)
-    map.off('contextmenu', onContextMenu)
+    map.off('click', onClick)
+    // map.off('contextmenu', onContextMenu)
   }
 }

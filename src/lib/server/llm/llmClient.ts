@@ -6,12 +6,28 @@ import {
   extractJSON,
 } from '@/lib/server/narrationSchema'
 
-type QwenStreamLine = {
+type LlmStreamLine = {
   response?: string
   done?: boolean
 }
 
-type QwenOptions = {
+/**
+ * LLM Options (passed to Ollama /generate endpoint)
+ *
+ * url: Ollama endpoint (default: LLM_URL)
+ * token: Bearer auth (default: TOKEN)
+ * model: Ollama model tag (default: LLM_MODEL or 'qwen2.5:7b-instruct')
+ *
+ * temperature: randomness - low=more predictable/factual/deterministic. Higher=more creative/varied [0.0-2.0]
+ * numPredict: maximum tokens to generate in response (~4 chars/token)
+ * numCtx: context length (prompt + response; larger=slower, more coherent)
+ * stop: list of stop sequences - generation halts if model outputs any
+ * keepAlive: model unload timer ('5m', '30s', '0' = immediate)
+ * topP: nucleus sampling - lower=more conservative/focused. Higher=more adventurous/diverse [0.0-1.0]
+ * repeatPenalty: discourages repetition of phrases/words (>1.0) [1.0-2.0]
+ * format: 'json' forces JSON-mode structured output (your schema validation)
+ */
+type LlmOptions = {
   url?: string
   token?: string
   model?: string
@@ -20,10 +36,12 @@ type QwenOptions = {
   numCtx?: number
   stop?: string[]
   keepAlive?: string
-  format?: 'json' // Force JSON output mode
+  topP?: number
+  repeatPenalty?: number
+  format?: 'json'
 }
 
-type QwenGenerateOptions = QwenOptions & {
+type LlmGenerateOptions = LlmOptions & {
   allowedNames?: Set<string>
   maxRetries?: number
   retryDelayMs?: number
@@ -39,18 +57,21 @@ function envNumber(name: string, fallback: number) {
 /**
  * Stream text chunks from Ollama-style `/generate` endpoint
  */
-export async function* streamQwen(prompt: string, opts: QwenOptions = {}) {
-  const url = opts.url ?? process.env.QWEN_URL
+export async function* streamLlm(prompt: string, opts: LlmOptions = {}) {
+  const url = opts.url ?? process.env.LLM_URL
   const token = opts.token ?? process.env.TOKEN
-  const model = opts.model ?? process.env.QWEN_MODEL ?? 'qwen2.5:7b-instruct'
-  const temperature = opts.temperature ?? envNumber('QWEN_TEMPERATURE', 0.2)
-  const numPredict = opts.numPredict ?? envNumber('QWEN_NUM_PREDICT', 350)
-  const numCtx = opts.numCtx ?? envNumber('QWEN_NUM_CTX', 4096)
+  const model = opts.model ?? process.env.LLM_MODEL ?? 'qwen2.5:7b-instruct'
+  const temperature = opts.temperature ?? envNumber('LLM_TEMPERATURE', 0.2)
+  const numPredict = opts.numPredict ?? envNumber('LLM_NUM_PREDICT', 350)
+  const numCtx = opts.numCtx ?? envNumber('LLM_NUM_CTX', 4096)
 
   const stop = opts.stop ?? ['\nEND']
   const keepAlive = opts.keepAlive ?? '30s'
 
-  if (!url) throw new Error('Missing QWEN_URL env var.')
+  const topP = opts.topP ?? envNumber('LLM_TOP_P', 0.9)
+  const repeatPenalty = opts.repeatPenalty ?? envNumber('LLM_REPEAT_PENALTY', 1.05)
+
+  if (!url) throw new Error('Missing LLM_URL env var.')
   if (!token) throw new Error('Missing TOKEN env var (Bearer token).')
 
   const payload = {
@@ -58,11 +79,18 @@ export async function* streamQwen(prompt: string, opts: QwenOptions = {}) {
     stream: true,
     keep_alive: keepAlive,
     format: opts.format, // 'json' for structured output
-    options: { temperature, num_predict: numPredict, num_ctx: numCtx, stop },
+    options: {
+      stop,
+      temperature,
+      num_predict: numPredict,
+      num_ctx: numCtx,
+      top_p: topP,
+      repeat_penalty: repeatPenalty,
+    },
     prompt,
   }
 
-  const res = await timed('qwen.fetch', async () => {
+  const res = await timed('llm.fetch', async () => {
     return await fetch(url, {
       method: 'POST',
       headers: {
@@ -75,11 +103,11 @@ export async function* streamQwen(prompt: string, opts: QwenOptions = {}) {
 
   if (!res.ok) {
     const body = await res.text().catch(() => '')
-    throw new Error(`Qwen upstream error: HTTP ${res.status}\n${body.slice(0, 1200)}`)
+    throw new Error(`Llm upstream error: HTTP ${res.status}\n${body.slice(0, 1200)}`)
   }
-  if (!res.body) throw new Error('Qwen response has no body.')
+  if (!res.body) throw new Error('Llm response has no body.')
 
-  debug('qwen', 'stream start', { model, url, format: opts.format })
+  debug('llm', 'stream start', { model, url, format: opts.format })
 
   const reader = res.body.getReader()
   const decoder = new TextDecoder('utf-8')
@@ -97,9 +125,9 @@ export async function* streamQwen(prompt: string, opts: QwenOptions = {}) {
       buffer = buffer.slice(idx + 1)
       if (!line) continue
 
-      let obj: QwenStreamLine | null = null
+      let obj: LlmStreamLine | null = null
       try {
-        obj = JSON.parse(line) as QwenStreamLine
+        obj = JSON.parse(line) as LlmStreamLine
       } catch {
         buffer = line + '\n' + buffer
         break
@@ -117,9 +145,9 @@ export async function* streamQwen(prompt: string, opts: QwenOptions = {}) {
  * This is the "function calling emulation" - we force JSON output,
  * validate against schema, and retry on failure.
  */
-export async function generateQwenValidated(
+export async function generateLlmValidated(
   prompt: string,
-  opts: QwenGenerateOptions = {},
+  opts: LlmGenerateOptions = {},
 ): Promise<NarrationOutput> {
   const maxRetries = opts.maxRetries ?? 3
   const retryDelayMs = opts.retryDelayMs ?? 1000
@@ -129,17 +157,17 @@ export async function generateQwenValidated(
 
   while (attempt < maxRetries) {
     attempt++
-    debug('qwen.validated', `attempt ${attempt}/${maxRetries}`)
+    debug('llm.validated', `attempt ${attempt}/${maxRetries}`)
 
     try {
       // Collect full response from stream
       const chunks: string[] = []
-      for await (const chunk of streamQwen(prompt, { ...opts, format: 'json' })) {
+      for await (const chunk of streamLlm(prompt, { ...opts, format: 'json' })) {
         chunks.push(chunk)
       }
 
       const rawResponse = chunks.join('')
-      debug('qwen.validated', 'raw response length', rawResponse.length)
+      debug('llm.validated', 'raw response length', rawResponse.length)
 
       // Extract and parse JSON
       const parsed = extractJSON(rawResponse)
@@ -150,7 +178,7 @@ export async function generateQwenValidated(
         : validateNarrationOutput(parsed)
 
       if (validation.success) {
-        debug('qwen.validated', 'success', { validationData: validation.data })
+        debug('llm.validated', 'success', { validationData: validation.data })
         return validation.data
       }
 
@@ -158,16 +186,16 @@ export async function generateQwenValidated(
       lastError = new Error(
         `Schema validation failed (attempt ${attempt}): ${validation.issues.join(', ')}`,
       )
-      debug('qwen.validated', 'validation failed', validation.issues)
+      debug('llm.validated', 'validation failed', validation.issues)
 
       // Don't retry on last attempt
       if (attempt < maxRetries) {
-        debug('qwen.validated', `retrying after ${retryDelayMs}ms`)
+        debug('llm.validated', `retrying after ${retryDelayMs}ms`)
         await new Promise((resolve) => setTimeout(resolve, retryDelayMs))
       }
     } catch (err) {
       lastError = err instanceof Error ? err : new Error(String(err))
-      debug('qwen.validated', 'error', lastError.message)
+      debug('llm.validated', 'error', lastError.message)
 
       if (attempt < maxRetries) {
         await new Promise((resolve) => setTimeout(resolve, retryDelayMs))
@@ -183,7 +211,7 @@ export async function generateQwenValidated(
  */
 export async function generateNarration(
   prompt: string,
-  opts?: QwenGenerateOptions,
+  opts?: LlmGenerateOptions,
 ): Promise<NarrationOutput> {
-  return generateQwenValidated(prompt, opts)
+  return generateLlmValidated(prompt, opts)
 }
