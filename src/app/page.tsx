@@ -50,37 +50,6 @@ export default function Home() {
     ]
   }, [meta?.curatedPOIs])
 
-  useEffect(() => {
-    if (process.env.NODE_ENV !== 'development') return
-
-    const root = document.documentElement
-
-    const obs = new MutationObserver((mutations) => {
-      for (const m of mutations) {
-        if (m.type !== 'childList') continue
-        if (!m.removedNodes || m.removedNodes.length === 0) continue
-
-        // Filter: only log removals under MapLibre containers
-        const targetEl = m.target instanceof Element ? m.target : null
-        const targetClass = targetEl?.className ? String(targetEl.className) : ''
-        const isMapLibre =
-          targetClass.includes('maplibregl') ||
-          !!targetEl?.closest?.('.maplibregl-canvas-container, .maplibregl-map')
-
-        if (!isMapLibre) continue
-
-        console.log('[maplibre mutation removed]', {
-          target: targetEl?.tagName?.toLowerCase(),
-          className: targetClass,
-          removedCount: m.removedNodes.length,
-        })
-      }
-    })
-
-    obs.observe(root, { childList: true, subtree: true })
-    return () => obs.disconnect()
-  }, [])
-
   // Fade-in animation when text appears
   useEffect(() => {
     if (!text) return

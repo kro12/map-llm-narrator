@@ -30,6 +30,11 @@ export default function MapClient({
   const onPreviewRef = useRef(onPreview)
   const onZoomEndRef = useRef(onZoomEnd)
 
+  // POI marker refs
+  const poiMarkersRef = useRef<maplibregl.Marker[]>([])
+  const popoverRef = useRef<HTMLDivElement | null>(null)
+  const activeMarkerRef = useRef<HTMLElement | null>(null)
+
   useEffect(() => {
     onReadyRef.current = onReady
   }, [onReady])
@@ -77,14 +82,14 @@ export default function MapClient({
     onReadyRef.current?.(api)
 
     // POI markers (imperative, no React render)
-    const poiMarkersRef: maplibregl.Marker[] = []
     let markersVisible = false
     let lastKey = ''
+    let closeTimeout: number | null = null
 
     const removeAll = () => {
-      if (!markersVisible && poiMarkersRef.length === 0) return
-      poiMarkersRef.forEach((m) => m.remove())
-      poiMarkersRef.length = 0
+      if (!markersVisible && poiMarkersRef.current.length === 0) return
+      poiMarkersRef.current.forEach((m) => m.remove())
+      poiMarkersRef.current = []
       markersVisible = false
       lastKey = ''
     }
@@ -97,15 +102,78 @@ export default function MapClient({
         )
         .join(';;')
 
+    const hidePopover = () => {
+      if (!popoverRef.current) return
+      popoverRef.current.style.opacity = '0'
+      popoverRef.current.style.pointerEvents = 'none'
+      if (activeMarkerRef.current) {
+        activeMarkerRef.current.style.transform = 'scale(1)'
+        activeMarkerRef.current.style.boxShadow = '0 2px 8px rgba(0, 0, 0, 0.12)'
+      }
+      activeMarkerRef.current = null
+    }
+
+    const cancelClose = () => {
+      if (closeTimeout) {
+        window.clearTimeout(closeTimeout)
+        closeTimeout = null
+      }
+    }
+
+    const scheduleClose = () => {
+      cancelClose()
+      closeTimeout = window.setTimeout(() => {
+        hidePopover()
+        closeTimeout = null
+      }, 300)
+    }
+
+    const showPopover = (poi: Poi, markerEl: HTMLElement) => {
+      if (!popoverRef.current) return
+      cancelClose()
+
+      activeMarkerRef.current = markerEl
+
+      const categoryLabel = poi.category === 'food' ? poi.foodKind : poi.bucket
+      const distanceText =
+        poi.distanceKm < 1
+          ? `${Math.round(poi.distanceKm * 1000)}m away`
+          : `${poi.distanceKm.toFixed(1)}km away`
+
+      popoverRef.current.innerHTML = `
+        <div class="poi-popover-arrow"></div>
+        <div class="poi-popover-name">${poi.name}</div>
+        <div class="poi-popover-category">${categoryLabel || 'attraction'}</div>
+        <div class="poi-popover-distance">${distanceText}</div>
+        ${
+          poi.osmUrl
+            ? `<a href="${poi.osmUrl}" target="_blank" rel="noopener noreferrer" class="poi-popover-link">
+                 View on OpenStreetMap →
+               </a>`
+            : ''
+        }
+      `
+
+      const rect = markerEl.getBoundingClientRect()
+      const popover = popoverRef.current
+      const mapContainer = map.getContainer().getBoundingClientRect()
+
+      popover.style.left = `${rect.left + rect.width / 2 - mapContainer.left}px`
+      popover.style.top = `${rect.top - mapContainer.top - 12}px`
+      popover.style.transform = 'translate(-50%, -100%)'
+      popover.style.opacity = '1'
+      popover.style.pointerEvents = 'auto'
+    }
+
     const updatePOIMarkers = () => {
       const state = useNarrationStore.getState()
-
-      // Only show POIs when guide is ready (prevents “previous POIs” lingering during new runs)
       const curated = state.meta?.curatedPOIs
-      const shouldShow = state.status === 'done' && !!curated
+      // show POIs to user as soon as values arrive - distraction whilst LLM computes, but better than showing nothing and then suddenly appearing markers later. Can iterate on this UX.
+      const shouldShow = !!curated
 
       if (!shouldShow) {
         removeAll()
+        hidePopover()
         return
       }
 
@@ -122,20 +190,65 @@ export default function MapClient({
 
       removeAll()
 
-      pois.forEach((poi) => {
-        const el = document.createElement('div')
-        el.className = `poi-badge ${poi.category === 'food' ? 'poi-food' : 'poi-attraction'}`
-        el.style.color = getMarkerColor(poi)
-        el.title = poi.name
+      if (!popoverRef.current) {
+        const popover = document.createElement('div')
+        popover.className = 'poi-popover-portal'
+        popover.style.cssText = `
+          position: absolute;
+          z-index: 1000;
+          opacity: 0;
+          pointer-events: none;
+          transition: opacity 150ms ease;
+        `
+        popover.addEventListener('mouseenter', cancelClose)
+        popover.addEventListener('mouseleave', scheduleClose)
+        map.getContainer().appendChild(popover)
+        popoverRef.current = popover
+      }
 
-        // Centered SVG, uses currentColor
-        el.innerHTML = getMarkerSvg(poi)
+      pois.forEach((poi, index) => {
+        const el = document.createElement('div')
+        el.className = 'poi-marker-container'
+
+        const inner = document.createElement('div')
+        inner.className = 'poi-marker-inner'
+        inner.style.cssText = `
+          width: 36px;
+          height: 36px;
+          background-color: white;
+          border: 1.5px solid ${getMarkerColor(poi)};
+          border-radius: 50%;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          color: ${getMarkerColor(poi)};
+          cursor: pointer;
+          box-shadow: 0 2px 8px rgba(0, 0, 0, 0.12);
+          transition: all 0.2s ease;
+          animation: poi-marker-drop 0.6s ease-out ${index * 80}ms both;
+        `
+        inner.innerHTML = getMarkerSvg(poi)
+
+        inner.addEventListener('mouseenter', () => {
+          cancelClose()
+          inner.style.transform = 'scale(1.1)'
+          inner.style.boxShadow = '0 4px 12px rgba(0, 0, 0, 0.16)'
+          showPopover(poi, inner)
+        })
+
+        inner.addEventListener('mouseleave', () => {
+          inner.style.transform = 'scale(1)'
+          inner.style.boxShadow = '0 2px 8px rgba(0, 0, 0, 0.12)'
+          scheduleClose()
+        })
+
+        el.appendChild(inner)
 
         const marker = new maplibregl.Marker({ element: el, anchor: 'center' })
           .setLngLat([poi.lon, poi.lat])
           .addTo(map)
 
-        poiMarkersRef.push(marker)
+        poiMarkersRef.current.push(marker)
       })
 
       markersVisible = true
@@ -148,10 +261,13 @@ export default function MapClient({
       map.off('zoomend', emitZoom)
       cleanupClick()
       cleanupTouch()
-      poiMarkersRef.forEach((m) => m.remove())
+      poiMarkersRef.current.forEach((m) => m.remove())
+      poiMarkersRef.current = []
       markerRef.current?.remove()
       markerRef.current = null
       unsub()
+      if (popoverRef.current) popoverRef.current.remove()
+      popoverRef.current = null
       map.remove()
       mapRef.current = null
     }

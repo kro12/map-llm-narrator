@@ -46,57 +46,60 @@ export const MarkerSvgs = {
     </svg>
   `,
 
-  // Updated: clearer beer mug “pub” icon
   pub: `
-    <svg ${svgBase}>
-      <!-- Mug body -->
-      <path
-        d="M7.5 8.5h8a2 2 0 0 1 2 2v7a2 2 0 0 1-2 2h-8a2 2 0 0 1-2-2v-7a2 2 0 0 1 2-2Z"
-        stroke="currentColor"
-        stroke-width="1.5"
-        stroke-linejoin="round"
-      />
-      <!-- Handle -->
-      <path
-        d="M17.5 11h1a2 2 0 0 1 2 2v2a2 2 0 0 1-2 2h-1"
-        stroke="currentColor"
-        stroke-width="1.5"
-        stroke-linecap="round"
-      />
-      <!-- Foam -->
-      <path
-        d="M8.2 8.5c.1-1.7 1.6-3 3.3-3 1 0 1.9.4 2.5 1.1.4-.3.9-.5 1.5-.5 1.2 0 2.2.9 2.3 2.1"
-        stroke="currentColor"
-        stroke-width="1.5"
-        stroke-linecap="round"
-      />
-      <!-- Inside lines -->
-      <path
-        d="M10 12.3v4.4M13 12.3v4.4"
-        stroke="currentColor"
-        stroke-width="1.5"
-        stroke-linecap="round"
-        opacity="0.9"
-      />
-    </svg>
-  `,
+  <svg ${svgBase}>
+    <!-- Glass -->
+    <path
+      d="M7 5l5 7v4M17 5l-5 7"
+      stroke="currentColor"
+      stroke-width="1.5"
+      stroke-linecap="round"
+      stroke-linejoin="round"
+    />
+    <!-- Base -->
+    <path
+      d="M9 20h6"
+      stroke="currentColor"
+      stroke-width="1.5"
+      stroke-linecap="round"
+    />
+    <!-- Rim line -->
+    <path
+      d="M7 5h10"
+      stroke="currentColor"
+      stroke-width="1.5"
+      stroke-linecap="round"
+    />
+    <!-- Olive -->
+    <circle cx="12" cy="8" r="1" fill="currentColor" />
+  </svg>
+`,
 
   bar: `
-    <svg ${svgBase}>
-      <path
-        d="M6 9h12l-2 6H8L6 9Z"
-        stroke="currentColor"
-        stroke-width="1.5"
-        stroke-linejoin="round"
-      />
-      <path
-        d="M8 15v4a1 1 0 0 0 1 1h6a1 1 0 0 0 1-1v-4M5 9l2-5h10l2 5"
-        stroke="currentColor"
-        stroke-width="1.5"
-        stroke-linejoin="round"
-      />
-    </svg>
-  `,
+  <svg ${svgBase}>
+    <!-- Mug body -->
+    <rect
+      x="8" y="7" width="7" height="10" rx="1"
+      stroke="currentColor"
+      stroke-width="1.5"
+      fill="none"
+    />
+    <!-- Handle -->
+    <path
+      d="M15 9h1a2 2 0 0 1 2 2v2a2 2 0 0 1-2 2h-1"
+      stroke="currentColor"
+      stroke-width="1.5"
+      fill="none"
+    />
+    <!-- Foam -->
+    <path
+      d="M8 7c0-.5.5-1 1-1h5c.5 0 1 .5 1 1"
+      stroke="currentColor"
+      stroke-width="1.5"
+      fill="none"
+    />
+  </svg>
+`,
 
   // Attractions
   museum: `

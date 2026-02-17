@@ -182,19 +182,19 @@ export const useNarrationStore = create<NarrationState>((set, get) => ({
   },
 }))
 
-import('./debugRecorder').then(({ attachZustandRecorder }) => {
-  ;(window as unknown as Record<string, unknown>).__narrationRecorder__ = attachZustandRecorder(
-    useNarrationStore,
-    (s) => ({
-      runId: s.runId,
-      selected: s.selected,
-      status: s.status,
-      meta: s.meta,
-      text: s.text,
-      error: s.error,
-      // exclude: abortController (not serializable)
-      // exclude: actions (functions)
-    }),
-    { max: 300, key: '__narration_snaps__' },
-  )
-})
+// import('./debugRecorder').then(({ attachZustandRecorder }) => {
+//   ;(window as unknown as Record<string, unknown>).__narrationRecorder__ = attachZustandRecorder(
+//     useNarrationStore,
+//     (s) => ({
+//       runId: s.runId,
+//       selected: s.selected,
+//       status: s.status,
+//       meta: s.meta,
+//       text: s.text,
+//       error: s.error,
+//       // exclude: abortController (not serializable)
+//       // exclude: actions (functions)
+//     }),
+//     { max: 300, key: '__narration_snaps__' },
+//   )
+// })
