@@ -34,6 +34,7 @@ export default function MapClient({
   const poiMarkersRef = useRef<maplibregl.Marker[]>([])
   const popoverRef = useRef<HTMLDivElement | null>(null)
   const activeMarkerRef = useRef<HTMLElement | null>(null)
+  const lastAutoFitKeyRef = useRef<string>('') // one-shot per POI key
 
   useEffect(() => {
     onReadyRef.current = onReady
@@ -92,6 +93,29 @@ export default function MapClient({
       poiMarkersRef.current = []
       markersVisible = false
       lastKey = ''
+    }
+
+    const fitToPoisOnce = (pois: Poi[], key: string) => {
+      if (!pois.length) return
+      if (lastAutoFitKeyRef.current === key) return
+      lastAutoFitKeyRef.current = key
+
+      const bounds = new maplibregl.LngLatBounds()
+      pois.forEach((p) => bounds.extend([p.lon, p.lat])) // extend supports LngLatLike [web:117]
+
+      // If all points are identical, fitBounds can feel odd; give it a tiny radius.
+      if (bounds.getSouthWest().toArray().join(',') === bounds.getNorthEast().toArray().join(',')) {
+        const [lon, lat] = [pois[0].lon, pois[0].lat]
+        bounds.extend([lon - 0.001, lat - 0.001])
+        bounds.extend([lon + 0.001, lat + 0.001])
+      }
+
+      map.fitBounds(bounds, {
+        padding: { top: 80, bottom: 80, left: 60, right: 460 }, // room for drawer
+        maxZoom: 15,
+        duration: 900,
+        linear: true, // true => easeTo, false => flyTo [web:99]
+      }) // fitBounds pans/zooms to contain bounds [web:102]
     }
 
     const buildKey = (pois: Poi[]) =>
@@ -182,6 +206,9 @@ export default function MapClient({
       const pois: Poi[] = [...attractions, ...eateries]
 
       const key = buildKey(pois)
+      // centre map on our returned POI locations, but only the first time we see this exact set of POIs (key)
+      fitToPoisOnce(pois, key)
+
       if (key === lastKey) {
         markersVisible = true
         return

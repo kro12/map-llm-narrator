@@ -57,8 +57,12 @@ export function MapGuidePanel(props: {
             size="small"
             onClick={onGenerate}
             disabled={!canGenerate}
-            startIcon={generating ? <CircularProgress size={16} color="inherit" /> : null}
-            className={generating ? 'animate-pulse' : undefined}
+            startIcon={
+              generating ? (
+                <CircularProgress size={16} color="inherit" className="motion-safe:animate-spin" />
+              ) : null
+            }
+            className={generating ? 'motion-safe:animate-pulse' : undefined}
           >
             {generating ? 'Generating…' : 'Generate'}
           </Button>
