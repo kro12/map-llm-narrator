@@ -1,20 +1,16 @@
 import type { Poi } from '@/lib/shared/types'
 
 /**
- * Minimal SVG marker icons matching the clean UI aesthetic.
- * All icons are 20x20 with 1.5px stroke weight for consistency.
+ * Marker SVGs (string form) for MapLibre markers.
+ * Uses currentColor so we can set el.style.color per POI.
  */
 
-const iconStyle = {
-  width: '20px',
-  height: '20px',
-  display: 'block',
-}
+const svgBase = `width="20" height="20" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"`
 
-export const MarkerIcons = {
+export const MarkerSvgs = {
   // Food & Drink
-  restaurant: (
-    <svg style={iconStyle} viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+  restaurant: `
+    <svg ${svgBase}>
       <path
         d="M8.5 8.64V15.5a.5.5 0 0 0 1 0V9.14a1.5 1.5 0 0 0 1.5-1.5V4.5a.5.5 0 0 0-1 0v3.14a.5.5 0 0 1-1 0V4.5a.5.5 0 0 0-1 0v3.14a.5.5 0 0 1-1 0V4.5a.5.5 0 0 0-1 0v3.14a1.5 1.5 0 0 0 1.5 1.5v6.86a.5.5 0 0 0 1 0V8.64Z"
         fill="currentColor"
@@ -25,192 +21,200 @@ export const MarkerIcons = {
       />
       <rect x="7" y="17" width="10" height="1" rx=".5" fill="currentColor" />
     </svg>
-  ),
+  `,
 
-  cafe: (
-    <svg style={iconStyle} viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+  cafe: `
+    <svg ${svgBase}>
       <path
         d="M6 9h10v6a2 2 0 0 1-2 2h-6a2 2 0 0 1-2-2V9Z"
         stroke="currentColor"
-        strokeWidth="1.5"
-        strokeLinecap="round"
+        stroke-width="1.5"
+        stroke-linecap="round"
       />
       <path
         d="M16 11h1a2 2 0 0 1 0 4h-1"
         stroke="currentColor"
-        strokeWidth="1.5"
-        strokeLinecap="round"
+        stroke-width="1.5"
+        stroke-linecap="round"
       />
       <path
         d="M6 9V7a1 1 0 0 1 1-1h8a1 1 0 0 1 1 1v2M5 19h14"
         stroke="currentColor"
-        strokeWidth="1.5"
-        strokeLinecap="round"
+        stroke-width="1.5"
+        stroke-linecap="round"
       />
     </svg>
-  ),
+  `,
 
-  pub: (
-    <svg style={iconStyle} viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+  // Updated: clearer beer mug “pub” icon
+  pub: `
+    <svg ${svgBase}>
+      <!-- Mug body -->
       <path
-        d="M9 3v2m6-2v2M9 5h6a3 3 0 0 1 3 3v8a3 3 0 0 1-3 3H9a3 3 0 0 1-3-3V8a3 3 0 0 1 3-3Z"
+        d="M7.5 8.5h8a2 2 0 0 1 2 2v7a2 2 0 0 1-2 2h-8a2 2 0 0 1-2-2v-7a2 2 0 0 1 2-2Z"
         stroke="currentColor"
-        strokeWidth="1.5"
-        strokeLinecap="round"
+        stroke-width="1.5"
+        stroke-linejoin="round"
       />
+      <!-- Handle -->
       <path
-        d="M6 8h12M6 13h12M12 19v2"
+        d="M17.5 11h1a2 2 0 0 1 2 2v2a2 2 0 0 1-2 2h-1"
         stroke="currentColor"
-        strokeWidth="1.5"
-        strokeLinecap="round"
+        stroke-width="1.5"
+        stroke-linecap="round"
+      />
+      <!-- Foam -->
+      <path
+        d="M8.2 8.5c.1-1.7 1.6-3 3.3-3 1 0 1.9.4 2.5 1.1.4-.3.9-.5 1.5-.5 1.2 0 2.2.9 2.3 2.1"
+        stroke="currentColor"
+        stroke-width="1.5"
+        stroke-linecap="round"
+      />
+      <!-- Inside lines -->
+      <path
+        d="M10 12.3v4.4M13 12.3v4.4"
+        stroke="currentColor"
+        stroke-width="1.5"
+        stroke-linecap="round"
+        opacity="0.9"
       />
     </svg>
-  ),
+  `,
 
-  bar: (
-    <svg style={iconStyle} viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+  bar: `
+    <svg ${svgBase}>
       <path
         d="M6 9h12l-2 6H8L6 9Z"
         stroke="currentColor"
-        strokeWidth="1.5"
-        strokeLinejoin="round"
+        stroke-width="1.5"
+        stroke-linejoin="round"
       />
       <path
         d="M8 15v4a1 1 0 0 0 1 1h6a1 1 0 0 0 1-1v-4M5 9l2-5h10l2 5"
         stroke="currentColor"
-        strokeWidth="1.5"
-        strokeLinejoin="round"
+        stroke-width="1.5"
+        stroke-linejoin="round"
       />
     </svg>
-  ),
+  `,
 
   // Attractions
-  museum: (
-    <svg style={iconStyle} viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+  museum: `
+    <svg ${svgBase}>
       <path
         d="M4 21h16M4 12h16M12 3l-8 5h16l-8-5Z"
         stroke="currentColor"
-        strokeWidth="1.5"
-        strokeLinecap="round"
-        strokeLinejoin="round"
+        stroke-width="1.5"
+        stroke-linecap="round"
+        stroke-linejoin="round"
       />
       <path
         d="M4 12v9M20 12v9M8 12v5M12 12v5M16 12v5"
         stroke="currentColor"
-        strokeWidth="1.5"
-        strokeLinecap="round"
+        stroke-width="1.5"
+        stroke-linecap="round"
       />
     </svg>
-  ),
+  `,
 
-  castle: (
-    <svg style={iconStyle} viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+  castle: `
+    <svg ${svgBase}>
       <path
         d="M3 21h18M5 9h14M5 21V9M19 21V9M5 9V5h2v2h2V5h2v2h2V5h2v2h2V5h2v4"
         stroke="currentColor"
-        strokeWidth="1.5"
-        strokeLinecap="round"
-        strokeLinejoin="round"
+        stroke-width="1.5"
+        stroke-linecap="round"
+        stroke-linejoin="round"
       />
-      <path d="M9 14v7h6v-7a3 3 0 0 0-6 0Z" stroke="currentColor" strokeWidth="1.5" />
+      <path d="M9 14v7h6v-7a3 3 0 0 0-6 0Z" stroke="currentColor" stroke-width="1.5" />
     </svg>
-  ),
+  `,
 
-  monument: (
-    <svg style={iconStyle} viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-      <path d="M12 3l4 10H8l4-10Z" stroke="currentColor" strokeWidth="1.5" strokeLinejoin="round" />
-      <path d="M8 13l-2 5h12l-2-5" stroke="currentColor" strokeWidth="1.5" strokeLinejoin="round" />
+  monument: `
+    <svg ${svgBase}>
+      <path d="M12 3l4 10H8l4-10Z" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round" />
+      <path d="M8 13l-2 5h12l-2-5" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round" />
       <path
         d="M6 18h12v2H6v-2ZM6 20h12"
         stroke="currentColor"
-        strokeWidth="1.5"
-        strokeLinecap="round"
+        stroke-width="1.5"
+        stroke-linecap="round"
       />
     </svg>
-  ),
+  `,
 
-  viewpoint: (
-    <svg style={iconStyle} viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-      <circle cx="12" cy="12" r="7" stroke="currentColor" strokeWidth="1.5" />
-      <circle cx="12" cy="12" r="3" stroke="currentColor" strokeWidth="1.5" />
+  viewpoint: `
+    <svg ${svgBase}>
+      <circle cx="12" cy="12" r="7" stroke="currentColor" stroke-width="1.5" />
+      <circle cx="12" cy="12" r="3" stroke="currentColor" stroke-width="1.5" />
       <path
         d="M12 2v3M12 19v3M2 12h3M19 12h3"
         stroke="currentColor"
-        strokeWidth="1.5"
-        strokeLinecap="round"
+        stroke-width="1.5"
+        stroke-linecap="round"
       />
     </svg>
-  ),
+  `,
 
-  park: (
-    <svg style={iconStyle} viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-      <path d="M12 3v18" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
-      <circle cx="8" cy="10" r="3.5" stroke="currentColor" strokeWidth="1.5" />
-      <circle cx="16" cy="10" r="3.5" stroke="currentColor" strokeWidth="1.5" />
-      <circle cx="12" cy="5" r="2.5" stroke="currentColor" strokeWidth="1.5" />
+  park: `
+    <svg ${svgBase}>
+      <path d="M12 3v18" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" />
+      <circle cx="8" cy="10" r="3.5" stroke="currentColor" stroke-width="1.5" />
+      <circle cx="16" cy="10" r="3.5" stroke="currentColor" stroke-width="1.5" />
+      <circle cx="12" cy="5" r="2.5" stroke="currentColor" stroke-width="1.5" />
     </svg>
-  ),
+  `,
 
-  landmark: (
-    <svg style={iconStyle} viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+  landmark: `
+    <svg ${svgBase}>
       <path
         d="M12 2l-8 6v13h16V8l-8-6Z"
         stroke="currentColor"
-        strokeWidth="1.5"
-        strokeLinejoin="round"
+        stroke-width="1.5"
+        stroke-linejoin="round"
       />
       <path
         d="M9 21v-6a3 3 0 0 1 6 0v6"
         stroke="currentColor"
-        strokeWidth="1.5"
-        strokeLinecap="round"
+        stroke-width="1.5"
+        stroke-linecap="round"
       />
     </svg>
-  ),
-}
+  `,
+} as const
 
-/**
- * Get marker color based on POI category.
- * Using neutral, minimal palette matching the UI.
- */
 export function getMarkerColor(poi: Poi): string {
-  if (poi.category === 'food') {
-    return '#18181b' // zinc-900 - dark for food
-  }
-  // Attractions - slightly lighter
-  return '#3f3f46' // zinc-700
+  // Matches your MUI slate theme: primary/main ~ #0f172a
+  if (poi.category === 'food') return '#0f172a' // slate-900
+  return '#334155' // slate-700
 }
 
-/**
- * Get the appropriate SVG icon for a POI.
- */
-export function getMarkerIcon(poi: Poi): React.ReactNode {
+export function getMarkerSvg(poi: Poi): string {
   if (poi.category === 'food') {
     switch (poi.foodKind) {
       case 'restaurant':
-        return MarkerIcons.restaurant
+        return MarkerSvgs.restaurant
       case 'cafe':
-        return MarkerIcons.cafe
+        return MarkerSvgs.cafe
       case 'pub':
-        return MarkerIcons.pub
+        return MarkerSvgs.pub
       case 'bar':
-        return MarkerIcons.bar
+        return MarkerSvgs.bar
       default:
-        return MarkerIcons.restaurant
+        return MarkerSvgs.restaurant
     }
   }
 
-  // Attractions
   switch (poi.bucket) {
     case 'culture':
-      return MarkerIcons.museum
+      return MarkerSvgs.museum
     case 'history':
-      return MarkerIcons.castle
+      return MarkerSvgs.castle
     case 'scenic':
-      return MarkerIcons.viewpoint
+      return MarkerSvgs.viewpoint
     case 'park':
-      return MarkerIcons.park
+      return MarkerSvgs.park
     default:
-      return MarkerIcons.landmark
+      return MarkerSvgs.landmark
   }
 }

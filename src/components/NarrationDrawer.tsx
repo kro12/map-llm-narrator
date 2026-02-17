@@ -1,32 +1,18 @@
 'use client'
-import { normalizeNarration } from '@/lib/utils/normalizeNarration'
-
-/**
- * NarrationDrawer
- *
- * Right-side sliding drawer that displays:
- * - Location header with context
- * - Image card (wiki photo or map preview)
- * - Streaming narration text with highlighted POI names
- * - Cancel/Close controls
- * - Status footer with warnings
- *
- * Behavior:
- * - Slides in when narration starts streaming
- * - Sticky image card at top during scroll
- * - Fade-in animation when text arrives
- * - Caret blink indicator during streaming
- */
 
 import { useMemo } from 'react'
 import Button from '@mui/material/Button'
 import Stack from '@mui/material/Stack'
-import { ImageCard } from './ui/ImageCard'
-import { Skeleton } from './ui/Skeleton'
-import { highlightPlaceNames } from '@/lib/utils/highlightText'
+
+import { normalizeNarration } from '@/lib/utils/normalizeNarration'
+// import { highlightPlaceNames } from '@/lib/utils/highlightText'
 import type { NarrationMeta } from '@/lib/store/narrationStore'
 
+import { ImageCard } from './ui/ImageCard'
+import { Skeleton } from './ui/Skeleton'
+
 export function NarrationDrawer(props: {
+  runId: number
   open: boolean
   status: string
   text: string
@@ -42,13 +28,14 @@ export function NarrationDrawer(props: {
   onClose: () => void
 }) {
   const {
+    runId,
     open,
     status,
     text,
     error,
     meta,
     fadeIn,
-    highlightNames,
+    // highlightNames,
     imageSrc,
     imageLabel,
     imageNote,
@@ -57,9 +44,6 @@ export function NarrationDrawer(props: {
     onClose,
   } = props
 
-  /**
-   * Build location header line (label + context)
-   */
   const locationLine = useMemo(() => {
     const label = meta?.label ?? meta?.location
     if (!label) return null
@@ -67,6 +51,11 @@ export function NarrationDrawer(props: {
   }, [meta])
 
   const normalized = useMemo(() => normalizeNarration(text), [text])
+
+  // Keep structure stable; avoid swapping whole branches.
+  const showStickyHeader = status === 'streaming' || status === 'done'
+  const showSkeleton = !error && status === 'streaming' && !normalized
+  const showText = !error && !!normalized
 
   return (
     <aside
@@ -76,9 +65,11 @@ export function NarrationDrawer(props: {
         'transition-transform duration-200 ease-out',
         open ? 'translate-x-0' : 'translate-x-full',
       ].join(' ')}
+      // optional: helps some translation engines avoid touching this subtree
+      translate="no"
     >
       <div className="h-full flex flex-col text-slate-900">
-        {/* Header with Cancel/Close buttons */}
+        {/* Header */}
         <div className="p-4 border-b flex items-center justify-between">
           <div className="font-semibold">Location Guide</div>
           <Stack direction="row" spacing={1}>
@@ -96,44 +87,54 @@ export function NarrationDrawer(props: {
           </Stack>
         </div>
 
-        {/* Scrollable content area */}
+        {/* Body */}
         <div className="p-4 overflow-auto break-words flex-1 leading-relaxed text-[0.95rem]">
-          {/* Sticky image card (only show during streaming/done) */}
-          {(status === 'streaming' || status === 'done') && (
-            <div className="sticky top-0 z-10 bg-white pb-3 mb-3">
-              {locationLine && <div className="text-xs text-slate-500 mb-2">{locationLine}</div>}
-              {/* Key forces remount on src change, preventing stale DOM refs */}
-              <ImageCard
-                key={imageSrc ?? 'placeholder'}
-                src={imageSrc}
-                alt={meta?.label ?? meta?.location ?? 'Selected location'}
-                labelLeft={imageLabel}
-                loading={wikiLoading}
-                noteRight={imageNote}
-              />
-            </div>
-          )}
+          {/* Sticky header: keep mounted when possible, but safe to hide */}
+          <div className={showStickyHeader ? 'sticky top-0 z-10 bg-white pb-3 mb-3' : 'hidden'}>
+            {locationLine ? (
+              <div className="text-xs text-slate-500 mb-2">{locationLine}</div>
+            ) : null}
 
-          {/* Content: Error / Skeleton / Narration text */}
-          {error ? (
-            <div className="text-red-600">{error}</div>
-          ) : status === 'streaming' && !text ? (
-            <Skeleton blocks={2} />
-          ) : text ? (
-            <div
-              className={[
-                'whitespace-pre-wrap leading-relaxed',
-                'transition-opacity duration-300 ease-out',
-                fadeIn ? 'opacity-100' : 'opacity-0',
-              ].join(' ')}
-            >
-              {highlightPlaceNames(normalized, highlightNames)}
-              {status === 'streaming' && (
-                <span className="inline-block align-baseline opacity-70 ml-0.5">▍</span>
-              )}
+            <ImageCard
+              // Remount image when src changes (helps avoid stale DOM refs)
+              key={imageSrc ?? 'placeholder'}
+              src={imageSrc}
+              alt={meta?.label ?? meta?.location ?? 'Selected location'}
+              labelLeft={imageLabel}
+              loading={wikiLoading}
+              noteRight={imageNote}
+            />
+          </div>
+
+          {/* Error line (doesn't replace the main text container) */}
+          {error ? <div className="text-red-600 mb-3">{error}</div> : null}
+
+          {/* Main narration container: always mounted; keyed remount per run/status */}
+          <div
+            key={`narration-${runId}-${status}`}
+            className={[
+              'whitespace-pre-wrap leading-relaxed',
+              'transition-opacity duration-300 ease-out',
+              fadeIn ? 'opacity-100' : 'opacity-0',
+            ].join(' ')}
+          >
+            {showText ? <span>{normalized}</span> : null}
+
+            {status === 'streaming' && normalized ? (
+              <span className="inline-block align-baseline opacity-70 ml-0.5 caret-blink">▍</span>
+            ) : null}
+          </div>
+
+          {/* Skeleton below text area (so the main container doesn't disappear) */}
+          {showSkeleton ? (
+            <div className="mt-3">
+              <Skeleton blocks={2} />
             </div>
           ) : null}
         </div>
+
+        {/* Optional footer if you want it back (stable, low-risk) */}
+        {/* <div className="p-3 border-t text-xs text-slate-500">Status: {status}</div> */}
       </div>
     </aside>
   )

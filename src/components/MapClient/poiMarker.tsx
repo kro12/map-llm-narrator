@@ -4,7 +4,7 @@ import { useEffect, useRef, useState } from 'react'
 import maplibregl from 'maplibre-gl'
 import * as Popover from '@radix-ui/react-popover'
 import type { Poi } from '@/lib/shared/types'
-import { getMarkerIcon, getMarkerColor } from './markerIcons'
+import { getMarkerSvg, getMarkerColor } from './markerIcons'
 
 type PoiMarkerProps = {
   poi: Poi
@@ -22,7 +22,7 @@ export function PoiMarker({ poi, map, animationDelay }: PoiMarkerProps) {
   const [isOpen, setIsOpen] = useState(false)
   const closeTimeoutRef = useRef<number | null>(null)
 
-  const icon = getMarkerIcon(poi)
+  const icon = getMarkerSvg(poi)
   const color = getMarkerColor(poi)
   const categoryLabel = poi.category === 'food' ? poi.foodKind : poi.bucket
   const distanceText =

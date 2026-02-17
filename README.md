@@ -8,13 +8,12 @@
 
 An interactive, streaming, map-based AI guide that generates structured, location-aware narration using a self-hosted LLM and public geospatial APIs.
 
-Live demo:  
-https://map-llm-narrator.vercel.app/
+<!-- Live demo:
+https://map-llm-narrator.vercel.app/ -->
 
 ---
 
 <img width="2762" height="1842" alt="image" src="https://github.com/user-attachments/assets/25311029-8b6f-47a7-b6b3-b233975020d6" />
-
 
 ## Overview
 

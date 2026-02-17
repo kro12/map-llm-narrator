@@ -154,3 +154,32 @@ mark.poi {
 .caret-blink {
   animation: caretBlink 1s steps(1, end) infinite;
 }
+
+/* Clean POI badge markers (theme-aligned) */
+.poi-badge {
+  width: 30px;
+  height: 30px;
+  border-radius: 9999px;
+  background: #ffffff;
+  border: 1px solid rgba(15, 23, 42, 0.18); /* slate-900 @ low alpha */
+  box-shadow: 0 6px 18px rgba(15, 23, 42, 0.1);
+  display: grid;
+  place-items: center;
+  transform: translateZ(0);
+  transition:
+    transform 120ms ease-out,
+    box-shadow 120ms ease-out,
+    border-color 120ms ease-out;
+}
+
+.poi-badge svg {
+  display: block;
+  width: 18px;
+  height: 18px;
+}
+
+.poi-badge:hover {
+  transform: scale(1.06);
+  box-shadow: 0 10px 24px rgba(15, 23, 42, 0.14);
+  border-color: rgba(15, 23, 42, 0.28);
+}

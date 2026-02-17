@@ -1,18 +1,16 @@
 'use client'
 
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useRef } from 'react'
 import maplibregl from 'maplibre-gl'
 import { useNarrationStore } from '@/lib/store/narrationStore'
 import { initializeMap, createMapApi } from '@/components/MapClient/mapSetup'
 import { setupClickHandler } from '@/components/MapClient/clickHandler'
 import { setupTouchHandler } from '@/components/MapClient/touchHandler'
-import { PoiMarkers } from '@/components/MapClient/poiMarkers'
 import type { MapApi } from '@/components/MapClient/types'
 import type { Poi } from '@/lib/shared/types'
+import { getMarkerColor, getMarkerSvg } from '@/components/MapClient/markerIcons'
 
 export type { MapApi }
-
-const EMPTY_POIS: Poi[] = []
 
 export default function MapClient({
   onReady,
@@ -26,73 +24,138 @@ export default function MapClient({
   const containerRef = useRef<HTMLDivElement | null>(null)
   const mapRef = useRef<maplibregl.Map | null>(null)
   const markerRef = useRef<maplibregl.Marker | null>(null)
-  const apiRef = useRef<MapApi | null>(null)
 
-  // Track map initialization state for rendering PoiMarkers
-  const [mapInstance, setMapInstance] = useState<maplibregl.Map | null>(null)
-
-  const selectPoint = useNarrationStore((s) => s.selectPoint)
-
-  // Get POI data directly from store
-  const curated = useNarrationStore((s) => s.meta?.curatedPOIs)
-  const selectedEateries = curated?.selectedEateries ?? EMPTY_POIS
-  const selectedAttractions = curated?.selectedAttractions ?? EMPTY_POIS
+  // Callback refs (prevents re-init on prop changes)
+  const onReadyRef = useRef(onReady)
+  const onPreviewRef = useRef(onPreview)
+  const onZoomEndRef = useRef(onZoomEnd)
 
   useEffect(() => {
-    if (!containerRef.current || mapRef.current) return
+    onReadyRef.current = onReady
+  }, [onReady])
+
+  useEffect(() => {
+    onPreviewRef.current = onPreview
+  }, [onPreview])
+
+  useEffect(() => {
+    onZoomEndRef.current = onZoomEnd
+  }, [onZoomEnd])
+
+  // INIT MAP ONCE
+  useEffect(() => {
+    if (!containerRef.current) return
+    if (mapRef.current) return
 
     const map = initializeMap(containerRef.current)
     mapRef.current = map
-    setMapInstance(map) // Store in state for PoiMarkers
 
-    // Emit initial zoom level
-    const emitZoom = () => onZoomEnd?.(map.getZoom())
+    // Zoom handler
+    const emitZoom = () => onZoomEndRef.current?.(map.getZoom())
     map.on('zoomend', emitZoom)
     emitZoom()
 
-    // Capture marker ref at start of effect for cleanup
-    const markerRefValue = markerRef
-
-    // Setup click handler
+    // Click handler (map selection)
+    const selectPoint = useNarrationStore.getState().selectPoint
     const cleanupClick = setupClickHandler({
       map,
       markerRef,
       selectPoint,
-      onPreview,
+      onPreview: (dataUrl) => onPreviewRef.current?.(dataUrl),
     })
 
-    // Setup touch handler (mobile long-press)
+    // Touch handler (long-press)
     const cleanupTouch = setupTouchHandler({
       map,
       markerRef,
       selectPoint,
-      onPreview,
+      onPreview: (dataUrl) => onPreviewRef.current?.(dataUrl),
     })
 
-    // Create and provide API to parent
+    // Provide API to parent
     const api = createMapApi(map)
-    apiRef.current = api
-    onReady?.(api)
+    onReadyRef.current?.(api)
+
+    // POI markers (imperative, no React render)
+    const poiMarkersRef: maplibregl.Marker[] = []
+    let markersVisible = false
+    let lastKey = ''
+
+    const removeAll = () => {
+      if (!markersVisible && poiMarkersRef.length === 0) return
+      poiMarkersRef.forEach((m) => m.remove())
+      poiMarkersRef.length = 0
+      markersVisible = false
+      lastKey = ''
+    }
+
+    const buildKey = (pois: Poi[]) =>
+      pois
+        .map(
+          (p) =>
+            `${p.name}|${p.lat.toFixed(5)}|${p.lon.toFixed(5)}|${p.category}|${p.bucket}|${p.foodKind ?? ''}`,
+        )
+        .join(';;')
+
+    const updatePOIMarkers = () => {
+      const state = useNarrationStore.getState()
+
+      // Only show POIs when guide is ready (prevents “previous POIs” lingering during new runs)
+      const curated = state.meta?.curatedPOIs
+      const shouldShow = state.status === 'done' && !!curated
+
+      if (!shouldShow) {
+        removeAll()
+        return
+      }
+
+      const attractions = curated!.selectedAttractions ?? []
+      const eateries = curated!.selectedEateries ?? []
+      const pois: Poi[] = [...attractions, ...eateries]
+
+      const key = buildKey(pois)
+      if (key === lastKey) {
+        markersVisible = true
+        return
+      }
+      lastKey = key
+
+      removeAll()
+
+      pois.forEach((poi) => {
+        const el = document.createElement('div')
+        el.className = `poi-badge ${poi.category === 'food' ? 'poi-food' : 'poi-attraction'}`
+        el.style.color = getMarkerColor(poi)
+        el.title = poi.name
+
+        // Centered SVG, uses currentColor
+        el.innerHTML = getMarkerSvg(poi)
+
+        const marker = new maplibregl.Marker({ element: el, anchor: 'center' })
+          .setLngLat([poi.lon, poi.lat])
+          .addTo(map)
+
+        poiMarkersRef.push(marker)
+      })
+
+      markersVisible = true
+    }
+
+    const unsub = useNarrationStore.subscribe(updatePOIMarkers)
+    updatePOIMarkers()
 
     return () => {
-      // Use captured ref
-      const marker = markerRefValue.current
-
       map.off('zoomend', emitZoom)
       cleanupClick()
       cleanupTouch()
-      marker?.remove()
+      poiMarkersRef.forEach((m) => m.remove())
+      markerRef.current?.remove()
+      markerRef.current = null
+      unsub()
       map.remove()
       mapRef.current = null
-      apiRef.current = null
-      setMapInstance(null)
     }
-  }, [onReady, onPreview, onZoomEnd, selectPoint])
+  }, [])
 
-  return (
-    <>
-      <div ref={containerRef} className="h-full w-full" />
-      <PoiMarkers map={mapInstance} attractions={selectedAttractions} eateries={selectedEateries} />
-    </>
-  )
+  return <div ref={containerRef} className="h-full w-full" />
 }

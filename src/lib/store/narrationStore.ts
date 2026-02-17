@@ -48,6 +48,7 @@ function parseSseEventData(eventBlock: string): string | null {
     .map((l) => l.replace(/^data:\s?/, ''))
 
   if (dataLines.length === 0) return null
+  // Spec behavior: join multiple data: lines with "\n"
   return dataLines.join('\n')
 }
 
@@ -180,3 +181,20 @@ export const useNarrationStore = create<NarrationState>((set, get) => ({
     set({ status: 'idle', text: '', meta: null, error: null })
   },
 }))
+
+import('./debugRecorder').then(({ attachZustandRecorder }) => {
+  ;(window as unknown as Record<string, unknown>).__narrationRecorder__ = attachZustandRecorder(
+    useNarrationStore,
+    (s) => ({
+      runId: s.runId,
+      selected: s.selected,
+      status: s.status,
+      meta: s.meta,
+      text: s.text,
+      error: s.error,
+      // exclude: abortController (not serializable)
+      // exclude: actions (functions)
+    }),
+    { max: 300, key: '__narration_snaps__' },
+  )
+})

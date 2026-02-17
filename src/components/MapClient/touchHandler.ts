@@ -33,6 +33,7 @@ export function setupTouchHandler({
 
     pressStart = { x: ev.touches[0].clientX, y: ev.touches[0].clientY }
 
+    clearPress()
     pressTimer = window.setTimeout(() => {
       if (!pressStart || !canSelect()) {
         clearPress()
@@ -75,6 +76,7 @@ export function setupTouchHandler({
   canvas.addEventListener('touchcancel', onTouchCancel)
 
   return () => {
+    clearPress()
     canvas.removeEventListener('touchstart', onTouchStart)
     canvas.removeEventListener('touchmove', onTouchMove)
     canvas.removeEventListener('touchend', onTouchEnd)
