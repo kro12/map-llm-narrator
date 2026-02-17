@@ -30,6 +30,8 @@ type NarrationState = {
   selected: LatLon | null
   status: Status
   meta: NarrationMeta | null
+  highlightAppliedRunId: number | null
+  markHighlightApplied: () => void
   text: string
   error: string | null
   abortController: AbortController | null
@@ -68,6 +70,11 @@ export const useNarrationStore = create<NarrationState>((set, get) => ({
   selected: null,
   status: 'idle',
   meta: null,
+  highlightAppliedRunId: null,
+  markHighlightApplied: () => {
+    const { runId } = get()
+    set({ highlightAppliedRunId: runId })
+  },
   text: '',
   error: null,
   abortController: null,
@@ -178,7 +185,7 @@ export const useNarrationStore = create<NarrationState>((set, get) => ({
 
   reset: () => {
     get().cancelNarration()
-    set({ status: 'idle', text: '', meta: null, error: null })
+    set({ status: 'idle', text: '', meta: null, highlightAppliedRunId: null, error: null })
   },
 }))
 

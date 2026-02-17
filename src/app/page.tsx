@@ -31,6 +31,9 @@ export default function Home() {
   const handleMapReady = useCallback((api: MapApi) => setMapApi(api), [])
   const handlePreview = useCallback((dataUrl: string) => setPreviewSrc(dataUrl), [])
 
+  const highlightAppliedRunId = useNarrationStore((s) => s.highlightAppliedRunId)
+  const markHighlightApplied = useNarrationStore((s) => s.markHighlightApplied)
+
   const handleZoomEnd = useCallback((z: number) => {
     setZoom((prev) => {
       if (prev < 13 && z >= 13) {
@@ -131,6 +134,8 @@ export default function Home() {
 
       <NarrationDrawer
         runId={runId}
+        highlightAppliedRunId={highlightAppliedRunId}
+        onMarkHighlightApplied={markHighlightApplied}
         open={status === 'streaming' || status === 'done' || !!error}
         status={status}
         text={text ?? ''}

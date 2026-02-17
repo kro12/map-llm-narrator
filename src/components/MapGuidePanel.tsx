@@ -5,6 +5,7 @@
  */
 import Button from '@mui/material/Button'
 import Stack from '@mui/material/Stack'
+import CircularProgress from '@mui/material/CircularProgress'
 
 const MIN_ZOOM_TO_ENABLE = 13
 
@@ -22,6 +23,7 @@ export function MapGuidePanel(props: {
   const zoomOk = zoom >= MIN_ZOOM_TO_ENABLE
   const busy = status === 'streaming'
   const canGenerate = zoomOk && !!selected && !busy
+  const generating = status === 'streaming'
 
   const hint = !zoomOk
     ? `Zoom in to level ${MIN_ZOOM_TO_ENABLE}+ to enable the Map Guide.`
@@ -50,8 +52,15 @@ export function MapGuidePanel(props: {
         </Button>
 
         <div key={`generate-${runId}`}>
-          <Button variant="contained" size="small" disabled={!canGenerate} onClick={onGenerate}>
-            {status === 'streaming' ? 'Generating…' : 'Generate'}
+          <Button
+            variant="contained"
+            size="small"
+            onClick={onGenerate}
+            disabled={!canGenerate}
+            startIcon={generating ? <CircularProgress size={16} color="inherit" /> : null}
+            className={generating ? 'animate-pulse' : undefined}
+          >
+            {generating ? 'Generating…' : 'Generate'}
           </Button>
         </div>
       </Stack>

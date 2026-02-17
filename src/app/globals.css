@@ -162,3 +162,11 @@ body {
   background-color: #f9fafb;
   border-color: #d1d5db;
 }
+
+/* Low-key highlight that fits your grey/blue theme */
+mark.poi {
+  background: rgba(15, 23, 42, 0.1); /* subtle slate tint */
+  color: inherit;
+  padding: 0 0.12em;
+  border-radius: 0.25em;
+}

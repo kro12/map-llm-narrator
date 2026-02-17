@@ -10,18 +10,29 @@ function escapeRegex(s: string) {
 export function highlightPlaceNames(text: string, names: string[]) {
   if (!names.length || !text) return text
 
-  const pattern = new RegExp(`\\b(${names.map(escapeRegex).join('|')})\\b`, 'gi')
+  // Prefer longest-first so alternation doesn't match a shorter name inside a longer one.
+  const sorted = [...names].filter(Boolean).sort((a, b) => b.length - a.length)
+
+  // Unicode-aware “word-ish” boundaries: not preceded/followed by a letter or number.
+  // Avoid lookbehind for broader Safari compatibility; use a captured prefix instead. [web:51][web:52]
+  const boundary = String.raw`(^|[^\p{L}\p{N}])`
+  const body = `(${sorted.map(escapeRegex).join('|')})`
+  const tail = String.raw`(?=[^\p{L}\p{N}]|$)`
+  const pattern = new RegExp(`${boundary}${body}${tail}`, 'giu')
+
   const parts = text.split(pattern)
 
-  // Return a single Fragment with stable structure
+  // With the capturing groups, split() yields:
+  // [text, boundary, match, text, boundary, match, ...]
   return (
     <>
       {parts.map((part, i) => {
         if (!part) return null
 
-        const isMatch = names.some((name) => name.toLowerCase() === part.toLowerCase())
+        // Every 3-tuple: index%3 === 1 is boundary, index%3 === 2 is match.
+        if (i % 3 === 1) return part // boundary char(s) unchanged
 
-        if (isMatch) {
+        if (i % 3 === 2) {
           return (
             <mark key={i} className="poi">
               {part}
@@ -29,8 +40,7 @@ export function highlightPlaceNames(text: string, names: string[]) {
           )
         }
 
-        // Return text nodes directly without wrapper
-        return part
+        return part // normal text chunk
       })}
     </>
   )
