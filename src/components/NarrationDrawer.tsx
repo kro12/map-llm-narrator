@@ -1,6 +1,6 @@
 'use client'
 
-import { useMemo, useEffect, useRef } from 'react'
+import { useMemo, useEffect } from 'react'
 import Button from '@mui/material/Button'
 import Stack from '@mui/material/Stack'
 
@@ -21,6 +21,8 @@ export function NarrationDrawer(props: {
   highlightNames: string[]
   highlightAppliedRunId: number | null
   onMarkHighlightApplied: () => void
+  nameToId?: Record<string, string>
+  onPoiHover?: (poiId: string | null) => void
 
   fadeIn: boolean
   imageSrc: string | null
@@ -35,6 +37,8 @@ export function NarrationDrawer(props: {
     highlightNames,
     highlightAppliedRunId,
     onMarkHighlightApplied,
+    nameToId,
+    onPoiHover,
     open,
     status,
     text,
@@ -68,28 +72,58 @@ export function NarrationDrawer(props: {
 
   const renderedNarration = useMemo(() => {
     if (!normalized || error) return null
+
+    // Streaming (or any non-done): no highlight, no hover wiring needed
     if (status !== 'done') return <span>{normalized}</span>
 
-    // After done: highlight only if we've “applied” for this run.
+    // Only highlight once store says it's applied for this run
     if (highlightAppliedRunId === runId) {
-      return highlightPlaceNames(normalized, highlightNames)
+      return (
+        <div
+          onMouseOver={(e) => {
+            const target = e.target as HTMLElement | null
+            const mark = target?.closest?.('mark.poi') as HTMLElement | null
+            if (!mark) return
+
+            // If we came from inside the same mark, ignore
+            const from = e.relatedTarget as HTMLElement | null
+            if (from && mark.contains(from)) return
+
+            const id = mark.dataset.poiId
+            if (id) {
+              console.log('[poi-hover] ENTER', id)
+              onPoiHover?.(id)
+            }
+          }}
+          onMouseOut={(e) => {
+            const mark = (e.target as HTMLElement | null)?.closest?.(
+              'mark.poi',
+            ) as HTMLElement | null
+            if (!mark) return
+
+            const to = e.relatedTarget as HTMLElement | null
+            if (to && mark.contains(to)) return // don’t clear if still inside mark [web:246]
+
+            onPoiHover?.(null)
+          }}
+        >
+          {highlightPlaceNames(normalized, highlightNames, nameToId)}
+        </div>
+      )
     }
 
-    // First done render before the effect flips the flag: still show plain text.
+    // First done render before onMarkHighlightApplied() flips the store flag
     return <span>{normalized}</span>
-  }, [normalized, error, status, highlightNames, highlightAppliedRunId, runId])
-
-  // One-shot gate: allow highlighting only once per run completion.
-  const allowHighlightRef = useRef(false)
-
-  // When we enter done, "arm" the one-shot. When we leave done, disarm it.
-  useEffect(() => {
-    if (status === 'done') {
-      allowHighlightRef.current = true
-      return
-    }
-    allowHighlightRef.current = false
-  }, [status, runId]) // effect allowed: just mutating ref, no setState [web:55]
+  }, [
+    normalized,
+    error,
+    status,
+    highlightNames,
+    nameToId,
+    onPoiHover,
+    highlightAppliedRunId,
+    runId,
+  ])
 
   const showStickyHeader = status === 'streaming' || status === 'done'
   const showSkeleton = !error && status === 'streaming' && !normalized

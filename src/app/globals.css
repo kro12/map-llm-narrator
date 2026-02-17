@@ -113,13 +113,12 @@ body {
   position: absolute;
   bottom: -6px;
   left: 50%;
-  transform: translateX(-50%);
+  transform: translateX(-50%) rotate(45deg);
   width: 12px;
   height: 12px;
   background: white;
   border-right: 1px solid #e5e7eb;
   border-bottom: 1px solid #e5e7eb;
-  transform: translateX(-50%) rotate(45deg);
   filter: drop-shadow(0 -1px 1px rgba(0, 0, 0, 0.05));
 }
 
@@ -169,4 +168,17 @@ mark.poi {
   color: inherit;
   padding: 0 0.12em;
   border-radius: 0.25em;
+}
+
+/* Make POI marker hover "pop" feel snappy */
+.poi-marker-inner {
+  transition:
+    transform 120ms ease,
+    box-shadow 120ms ease;
+}
+
+/* Pop the POI marker when hovered in text (overrides inline styles) */
+.poi-pop .poi-marker-inner {
+  transform: scale(1.18) !important;
+  box-shadow: 0 6px 16px rgba(0, 0, 0, 0.18) !important;
 }

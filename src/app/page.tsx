@@ -28,7 +28,10 @@ export default function Home() {
   const [zoomUnlockedCue, setZoomUnlockedCue] = useState(false)
   const [fadeIn, setFadeIn] = useState(false)
 
-  const handleMapReady = useCallback((api: MapApi) => setMapApi(api), [])
+  const handleMapReady = useCallback((api: MapApi) => {
+    console.log('mapApi keys', Object.keys(api))
+    setMapApi(api)
+  }, [])
   const handlePreview = useCallback((dataUrl: string) => setPreviewSrc(dataUrl), [])
 
   const highlightAppliedRunId = useNarrationStore((s) => s.highlightAppliedRunId)
@@ -51,6 +54,18 @@ export default function Home() {
       ...curated.selectedAttractions.map((p: Poi) => p.name),
       ...curated.selectedEateries.map((p: Poi) => p.name),
     ]
+  }, [meta?.curatedPOIs])
+
+  const nameToId = useMemo(() => {
+    const curated = meta?.curatedPOIs
+    if (!curated) return {}
+
+    const pois = [...curated.selectedAttractions, ...curated.selectedEateries]
+    const map: Record<string, string> = {}
+    for (const p of pois) {
+      map[p.name.toLowerCase()] = `${p.name}|${p.lat.toFixed(5)}|${p.lon.toFixed(5)}`
+    }
+    return map
   }, [meta?.curatedPOIs])
 
   // Fade-in animation when text appears
@@ -110,6 +125,15 @@ export default function Home() {
     setFadeIn(false)
   }
 
+  const handlePoiHover = useCallback(
+    (poiId: string | null) => {
+      console.log('[page] handlePoiHover', poiId)
+      if (poiId) mapApi?.popPoi?.(poiId)
+      else mapApi?.clearPoiPop?.()
+    },
+    [mapApi],
+  )
+
   const imageSrc = wiki.src ?? previewSrc ?? null
   const imageLabel = wiki.src ? 'Wikipedia photo' : 'Map preview'
   const imageNote =
@@ -136,6 +160,8 @@ export default function Home() {
         runId={runId}
         highlightAppliedRunId={highlightAppliedRunId}
         onMarkHighlightApplied={markHighlightApplied}
+        nameToId={nameToId}
+        onPoiHover={handlePoiHover}
         open={status === 'streaming' || status === 'done' || !!error}
         status={status}
         text={text ?? ''}

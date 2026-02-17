@@ -7,7 +7,11 @@ function escapeRegex(s: string) {
   return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
 }
 
-export function highlightPlaceNames(text: string, names: string[]) {
+export function highlightPlaceNames(
+  text: string,
+  names: string[],
+  nameToId?: Record<string, string>,
+) {
   if (!names.length || !text) return text
 
   // Prefer longest-first so alternation doesn't match a shorter name inside a longer one.
@@ -33,8 +37,10 @@ export function highlightPlaceNames(text: string, names: string[]) {
         if (i % 3 === 1) return part // boundary char(s) unchanged
 
         if (i % 3 === 2) {
+          // connect highlighted POI names to MapLibre markers underlying elements via data attributes for potential interactivity (e.g. hover/focus sync with map)
+          const id = nameToId?.[part.toLowerCase()]
           return (
-            <mark key={i} className="poi">
+            <mark key={i} className="poi" data-poi-id={id} data-poi-name={part}>
               {part}
             </mark>
           )

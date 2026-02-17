@@ -8,9 +8,6 @@ export const HOME_VIEW = {
   zoom: 5,
 }
 
-/**
- * Initialize MapLibre map with standard config.
- */
 export function initializeMap(container: HTMLElement): maplibregl.Map {
   const map = new maplibregl.Map({
     container,
@@ -21,14 +18,16 @@ export function initializeMap(container: HTMLElement): maplibregl.Map {
   })
 
   map.addControl(new maplibregl.NavigationControl(), 'top-right')
-
   return map
 }
 
 /**
  * Create public API for map control.
  */
-export function createMapApi(map: maplibregl.Map): MapApi {
+export function createMapApi(
+  map: maplibregl.Map,
+  deps: { popPoi: (poiId: string) => void; clearPoiPop: () => void },
+): MapApi {
   return {
     resetView: () => {
       map.flyTo({
@@ -52,5 +51,8 @@ export function createMapApi(map: maplibregl.Map): MapApi {
         duration: 800,
       })
     },
+
+    popPoi: deps.popPoi,
+    clearPoiPop: deps.clearPoiPop,
   }
 }

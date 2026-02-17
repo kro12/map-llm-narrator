@@ -35,6 +35,8 @@ export default function MapClient({
   const popoverRef = useRef<HTMLDivElement | null>(null)
   const activeMarkerRef = useRef<HTMLElement | null>(null)
   const lastAutoFitKeyRef = useRef<string>('') // one-shot per POI key
+  const poiMarkerByIdRef = useRef<Map<string, maplibregl.Marker>>(new Map())
+  const activePopPoiIdRef = useRef<string | null>(null)
 
   useEffect(() => {
     onReadyRef.current = onReady
@@ -55,6 +57,25 @@ export default function MapClient({
 
     const map = initializeMap(containerRef.current)
     mapRef.current = map
+
+    const clearPop = () => {
+      console.log('[MapClient] clearPoiPop')
+
+      const prev = activePopPoiIdRef.current
+      if (prev) poiMarkerByIdRef.current.get(prev)?.removeClassName('poi-pop') // MapLibre Marker API [web:137]
+      activePopPoiIdRef.current = null
+    }
+
+    const popPoi = (poiId: string) => {
+      console.log('[MapClient] popPoi', poiId)
+      console.log('[MapClient] known ids', poiMarkerByIdRef.current.size)
+      console.log('[MapClient] has?', poiMarkerByIdRef.current.has(poiId))
+      if (!poiId) return
+      if (activePopPoiIdRef.current === poiId) return
+      clearPop()
+      poiMarkerByIdRef.current.get(poiId)?.addClassName('poi-pop') // MapLibre Marker API [web:137]
+      activePopPoiIdRef.current = poiId
+    }
 
     // Zoom handler
     const emitZoom = () => onZoomEndRef.current?.(map.getZoom())
@@ -79,7 +100,7 @@ export default function MapClient({
     })
 
     // Provide API to parent
-    const api = createMapApi(map)
+    const api = createMapApi(map, { popPoi, clearPoiPop: clearPop })
     onReadyRef.current?.(api)
 
     // POI markers (imperative, no React render)
@@ -93,6 +114,8 @@ export default function MapClient({
       poiMarkersRef.current = []
       markersVisible = false
       lastKey = ''
+      poiMarkerByIdRef.current.clear()
+      clearPop()
     }
 
     const fitToPoisOnce = (pois: Poi[], key: string) => {
@@ -271,9 +294,13 @@ export default function MapClient({
 
         el.appendChild(inner)
 
+        const poiId = `${poi.name}|${poi.lat.toFixed(5)}|${poi.lon.toFixed(5)}`
         const marker = new maplibregl.Marker({ element: el, anchor: 'center' })
           .setLngLat([poi.lon, poi.lat])
           .addTo(map)
+
+        poiMarkersRef.current.push(marker)
+        poiMarkerByIdRef.current.set(poiId, marker)
 
         poiMarkersRef.current.push(marker)
       })
