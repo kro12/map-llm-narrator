@@ -309,8 +309,8 @@ export async function POST(req: Request) {
           return fallbackGeo(point)
         })
 
-        const poisPromise = withAbortableTimeout('getPoisSafe', TIMEOUTS.poisMs, () =>
-          getPoisSafe(point),
+        const poisPromise = withAbortableTimeout('getPoisSafe', TIMEOUTS.poisMs, (signal) =>
+          getPoisSafe(point, { signal }),
         ).catch((error) => {
           const message = error instanceof Error ? error.message : String(error)
 

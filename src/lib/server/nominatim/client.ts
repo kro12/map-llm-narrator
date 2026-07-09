@@ -1,3 +1,5 @@
+import { resolveUrl } from '../urlConfig'
+
 export type NominatimReverseResponse = {
   display_name?: string
   name?: string
@@ -37,11 +39,16 @@ export type GeoResult = {
   region?: string
 }
 
+const NOMINATIM_REVERSE_URL = resolveUrl(
+  'NOMINATIM_REVERSE_URL',
+  'https://nominatim.openstreetmap.org/reverse',
+)
+
 /**
  * Fetch reverse geocoding data from Nominatim.
  */
 export async function fetchNominatim(lat: number, lon: number): Promise<NominatimReverseResponse> {
-  const url = new URL('https://nominatim.openstreetmap.org/reverse')
+  const url = new URL(NOMINATIM_REVERSE_URL)
   url.searchParams.set('format', 'jsonv2')
   url.searchParams.set('lat', String(lat))
   url.searchParams.set('lon', String(lon))

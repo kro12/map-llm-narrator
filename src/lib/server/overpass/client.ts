@@ -1,4 +1,5 @@
 import { debug } from '@/lib/server/debug'
+import { resolveUrlList } from '@/lib/server/urlConfig'
 
 type OverpassResponse = {
   elements: Array<{
@@ -11,28 +12,29 @@ type OverpassResponse = {
   }>
 }
 
-const OVERPASS_ENDPOINTS = [
+const DEFAULT_OVERPASS_ENDPOINTS = [
   'https://overpass.kumi.systems/api/interpreter',
   'https://z.overpass-api.de/api/interpreter',
   'https://lz4.overpass-api.de/api/interpreter',
   'https://overpass-api.de/api/interpreter',
 ]
 
-/**
- * Merge two abort signals so either can cancel the request.
- */
+function getOverpassEndpoints() {
+  return resolveUrlList('OVERPASS_ENDPOINTS', DEFAULT_OVERPASS_ENDPOINTS)
+}
+
 function mergeSignals(a?: AbortSignal, b?: AbortSignal): AbortSignal | undefined {
   if (!a) return b
   if (!b) return a
 
   if (a.aborted || b.aborted) {
     const ac = new AbortController()
-    ac.abort()
+    ac.abort(a.reason ?? b.reason ?? new Error('Aborted'))
     return ac.signal
   }
 
   const ac = new AbortController()
-  const onAbort = () => ac.abort()
+  const onAbort = () => ac.abort(a.reason ?? b.reason ?? new Error('Aborted'))
 
   a.addEventListener('abort', onAbort, { once: true })
   b.addEventListener('abort', onAbort, { once: true })
@@ -49,35 +51,36 @@ function mergeSignals(a?: AbortSignal, b?: AbortSignal): AbortSignal | undefined
   return ac.signal
 }
 
-/**
- * Fetch with timeout wrapper.
- */
 async function fetchWithTimeout(url: string, init: RequestInit, ms: number, signal?: AbortSignal) {
   const ac = new AbortController()
-  const t = setTimeout(() => ac.abort(), ms)
+
+  const timer = setTimeout(() => {
+    ac.abort(new Error(`Fetch timed out after ${ms}ms: ${url}`))
+  }, ms)
+
   try {
     const merged = mergeSignals(signal, ac.signal)
     return await fetch(url, { ...init, signal: merged })
   } finally {
-    clearTimeout(t)
+    clearTimeout(timer)
   }
 }
 
-/**
- * Fetch Overpass data with automatic failover across multiple endpoints.
- */
 export async function fetchOverpass(
   query: string,
   timeoutMs: number,
   signal?: AbortSignal,
 ): Promise<OverpassResponse> {
+  const endpoints = getOverpassEndpoints()
+
   let lastErr: unknown = null
   let attempt = 0
 
-  for (const endpoint of OVERPASS_ENDPOINTS) {
+  for (const endpoint of endpoints) {
     attempt++
+
     try {
-      debug('overpass', `attempt ${attempt}/${OVERPASS_ENDPOINTS.length}`, endpoint)
+      debug('overpass', `attempt ${attempt}/${endpoints.length}`, endpoint)
 
       const res = await fetchWithTimeout(
         endpoint,
@@ -94,31 +97,36 @@ export async function fetchOverpass(
         signal,
       )
 
-      // Retry server overload errors on next endpoint
       if (res.status === 504 || res.status === 503 || res.status === 429) {
-        debug('overpass', `${res.status} (server overloaded), trying next endpoint`)
-        lastErr = new Error(`Overpass HTTP ${res.status} (overloaded)`)
+        debug('overpass', `${res.status} overloaded/rate-limited, trying next endpoint`, {
+          endpoint,
+        })
+        lastErr = new Error(`Overpass HTTP ${res.status} @ ${endpoint}`)
         continue
       }
 
-      if (!res.ok) throw new Error(`Overpass HTTP ${res.status} @ ${endpoint}`)
+      if (!res.ok) {
+        throw new Error(`Overpass HTTP ${res.status} @ ${endpoint}`)
+      }
 
       const data = (await res.json()) as OverpassResponse
+
       debug('overpass', `success on attempt ${attempt}`, {
         endpoint,
         elements: data.elements.length,
       })
+
       return data
-    } catch (e) {
-      // If budget abort fired, stop immediately
-      if (signal?.aborted) throw e
+    } catch (error) {
+      if (signal?.aborted) throw error
 
-      lastErr = e
-      const errMsg = e instanceof Error ? e.message : 'Unknown error'
-      debug('overpass', 'endpoint failed', endpoint, errMsg)
+      lastErr = error
+      debug('overpass', 'endpoint failed', {
+        endpoint,
+        error: error instanceof Error ? error.message : String(error),
+      })
 
-      // Brief delay before trying next endpoint
-      if (attempt < OVERPASS_ENDPOINTS.length && timeoutMs > 1500) {
+      if (attempt < endpoints.length && timeoutMs > 1500) {
         await new Promise((resolve) => setTimeout(resolve, 500))
       }
     }

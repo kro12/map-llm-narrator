@@ -23,9 +23,13 @@ const PER_QUERY_TIMEOUT_MS = 8000 // 8 seconds per query max
 /**
  * Safe wrapper: never throw POI errors to the caller.
  */
-export async function getPoisSafe(point: LatLon): Promise<{ pois: PoisResult; cacheHit: boolean }> {
+export async function getPoisSafe(
+  point: LatLon,
+  options?: { signal?: AbortSignal },
+): Promise<{ pois: PoisResult; cacheHit: boolean }> {
   try {
-    const { pois, cacheHit, budgetExceeded } = await getPois(point)
+    const { pois, cacheHit, budgetExceeded } = await getPois(point, options)
+
     return {
       pois: {
         ...pois,
@@ -38,11 +42,14 @@ export async function getPoisSafe(point: LatLon): Promise<{ pois: PoisResult; ca
     }
   } catch (e) {
     const msg = e instanceof Error ? e.message : 'Unknown Overpass error'
+
     debug('poiResolver', 'falling back to minimal data', msg)
+
     return {
       pois: {
         attractions: [],
         food: [],
+        warnings: ['POI lookup failed; continuing without nearby places.'],
         errors: [`Overpass API unavailable: ${msg}. Showing location info only.`],
       },
       cacheHit: false,
@@ -50,7 +57,10 @@ export async function getPoisSafe(point: LatLon): Promise<{ pois: PoisResult; ca
   }
 }
 
-export async function getPois(point: LatLon): Promise<{
+export async function getPois(
+  point: LatLon,
+  options?: { signal?: AbortSignal },
+): Promise<{
   pois: { attractions: Poi[]; food: Poi[] }
   cacheHit: boolean
   budgetExceeded: boolean
@@ -102,8 +112,10 @@ export async function getPois(point: LatLon): Promise<{
 
             // Fetch both in parallel, allow partial success
             const [attRes, foodRes] = await Promise.allSettled([
-              timed('overpass.attractions', () => fetchOverpass(attractionsQuery, queryTimeout)),
-              timed('overpass.food', () => fetchOverpass(foodQuery, queryTimeout)),
+              timed('overpass.attractions', () =>
+                fetchOverpass(attractionsQuery, queryTimeout, options?.signal),
+              ),
+              timed('overpass.food', () => fetchOverpass(foodQuery, queryTimeout, options?.signal)),
             ])
 
             const attractions =
