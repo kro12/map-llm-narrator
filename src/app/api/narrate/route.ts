@@ -504,6 +504,8 @@ export async function POST(req: Request) {
 
         if (error instanceof StepTimeoutError) {
           errorMsg = `Sorry - ${error.step} took too long for this location. Please try again shortly.`
+        } else if (error instanceof Error && error.message.includes('HTTP 401')) {
+          errorMsg = 'The narration model rejected the request due to an authentication issue.'
         } else if (error instanceof Error && error.message.toLowerCase().includes('validation')) {
           errorMsg = 'The narration model returned an invalid response. Please try again.'
         } else if (error instanceof Error && error.message.toLowerCase().includes('aborted')) {

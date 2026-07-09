@@ -6,7 +6,7 @@ import {
   extractJSON,
 } from '@/lib/server/narrationSchema'
 
-import { delay } from './utils'
+import { delay, getAuthHeaders } from './utils'
 
 type LlmStreamLine = {
   response?: string
@@ -99,7 +99,7 @@ export async function* streamLlm(prompt: string, opts: LlmOptions = {}) {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
-        Authorization: `Bearer ${token}`,
+        ...getAuthHeaders(),
       },
       body: JSON.stringify(payload),
       signal: opts.signal,

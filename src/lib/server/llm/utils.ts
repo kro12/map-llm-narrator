@@ -102,3 +102,32 @@ export function delay(ms: number, signal?: AbortSignal) {
     )
   })
 }
+
+export function getAuthHeaders(): HeadersInit {
+  const authType = process.env.LLM_AUTH_TYPE ?? 'bearer'
+
+  if (authType === 'basic') {
+    const user = process.env.LLM_BASIC_USER
+    const password = process.env.LLM_BASIC_PASSWORD
+
+    if (!user || !password) {
+      throw new Error('Missing LLM_BASIC_USER or LLM_BASIC_PASSWORD env var.')
+    }
+
+    const encoded = Buffer.from(`${user}:${password}`).toString('base64')
+
+    return {
+      Authorization: `Basic ${encoded}`,
+    }
+  }
+
+  const token = process.env.LLM_TOKEN ?? process.env.TOKEN
+
+  if (!token) {
+    throw new Error('Missing LLM_TOKEN env var.')
+  }
+
+  return {
+    Authorization: `Bearer ${token}`,
+  }
+}
