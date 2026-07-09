@@ -63,7 +63,7 @@ function envNumber(name: string, fallback: number) {
  */
 export async function* streamLlm(prompt: string, opts: LlmOptions = {}) {
   const url = opts.url ?? process.env.LLM_URL
-  const token = opts.token ?? process.env.TOKEN
+  const token = opts.token ?? process.env.LLM_TOKEN
   const model = opts.model ?? process.env.LLM_MODEL ?? 'qwen2.5:7b-instruct'
   const temperature = opts.temperature ?? envNumber('LLM_TEMPERATURE', 0.2)
   const numPredict = opts.numPredict ?? envNumber('LLM_NUM_PREDICT', 350)
