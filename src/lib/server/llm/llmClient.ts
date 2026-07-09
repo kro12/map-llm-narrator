@@ -6,6 +6,8 @@ import {
   extractJSON,
 } from '@/lib/server/narrationSchema'
 
+import { delay } from './utils'
+
 type LlmStreamLine = {
   response?: string
   done?: boolean
@@ -26,6 +28,7 @@ type LlmStreamLine = {
  * topP: nucleus sampling - lower=more conservative/focused. Higher=more adventurous/diverse [0.0-1.0]
  * repeatPenalty: discourages repetition of phrases/words (>1.0) [1.0-2.0]
  * format: 'json' forces JSON-mode structured output (your schema validation)
+ * signal: support passing AbortSignal
  */
 type LlmOptions = {
   url?: string
@@ -39,6 +42,7 @@ type LlmOptions = {
   topP?: number
   repeatPenalty?: number
   format?: 'json'
+  signal?: AbortSignal
 }
 
 type LlmGenerateOptions = LlmOptions & {
@@ -98,6 +102,7 @@ export async function* streamLlm(prompt: string, opts: LlmOptions = {}) {
         Authorization: `Bearer ${token}`,
       },
       body: JSON.stringify(payload),
+      signal: opts.signal,
     })
   })
 
@@ -156,23 +161,31 @@ export async function generateLlmValidated(
   let attempt = 0
 
   while (attempt < maxRetries) {
+    if (opts.signal?.aborted) {
+      throw opts.signal.reason ?? new Error('LLM generation aborted')
+    }
+
     attempt++
     debug('llm.validated', `attempt ${attempt}/${maxRetries}`)
 
     try {
-      // Collect full response from stream
       const chunks: string[] = []
+
+      const streamStartedAt = performance.now()
+
       for await (const chunk of streamLlm(prompt, { ...opts, format: 'json' })) {
         chunks.push(chunk)
       }
 
+      debug('llm.validated', 'stream completed', {
+        durationMs: Math.round(performance.now() - streamStartedAt),
+      })
+
       const rawResponse = chunks.join('')
       debug('llm.validated', 'raw response length', rawResponse.length)
 
-      // Extract and parse JSON
       const parsed = extractJSON(rawResponse)
 
-      // Validate against schema
       const validation = opts.allowedNames
         ? validateNarrationOutputWithAllowedNames(parsed, opts.allowedNames)
         : validateNarrationOutput(parsed)
@@ -182,23 +195,22 @@ export async function generateLlmValidated(
         return validation.data
       }
 
-      // Schema validation failed
       lastError = new Error(
         `Schema validation failed (attempt ${attempt}): ${validation.issues.join(', ')}`,
       )
+
       debug('llm.validated', 'validation failed', validation.issues)
 
-      // Don't retry on last attempt
       if (attempt < maxRetries) {
         debug('llm.validated', `retrying after ${retryDelayMs}ms`)
-        await new Promise((resolve) => setTimeout(resolve, retryDelayMs))
+        await delay(retryDelayMs, opts.signal)
       }
     } catch (err) {
       lastError = err instanceof Error ? err : new Error(String(err))
       debug('llm.validated', 'error', lastError.message)
 
       if (attempt < maxRetries) {
-        await new Promise((resolve) => setTimeout(resolve, retryDelayMs))
+        await delay(retryDelayMs, opts.signal)
       }
     }
   }

@@ -74,3 +74,31 @@ export function foodLabel(p: Poi) {
   const k = p.foodKind
   return k === 'pub' || k === 'cafe' || k === 'restaurant' || k === 'bar' ? k : ''
 }
+
+/**
+ * Promise-based delay that can be cancelled with an AbortSignal.
+ *
+ * Used between retry attempts so a timed-out or aborted request does not keep
+ * waiting in the background. If the signal is already aborted, or becomes
+ * aborted while the timer is pending, the delay rejects immediately with the
+ * abort reason.
+ */
+export function delay(ms: number, signal?: AbortSignal) {
+  return new Promise<void>((resolve, reject) => {
+    if (signal?.aborted) {
+      reject(signal.reason ?? new Error('Aborted'))
+      return
+    }
+
+    const timer = setTimeout(resolve, ms)
+
+    signal?.addEventListener(
+      'abort',
+      () => {
+        clearTimeout(timer)
+        reject(signal.reason ?? new Error('Aborted'))
+      },
+      { once: true },
+    )
+  })
+}
