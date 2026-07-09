@@ -1,9 +1,10 @@
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
 
-// Keep our internal timeout budget below this.
-// Vercel's Fluid compute also enabled
-export const maxDuration = 60
+// The Hetzner-hosted local LLM can legitimately take 90–150s.
+// Keep maxDuration above TIMEOUTS.llmMs plus resolver overhead.
+// Vercel Fluid Compute should be enabled for this route.
+export const maxDuration = 180
 
 import { reverseGeocode } from '@/lib/server/geoResolver'
 import { getPoisSafe } from '@/lib/server/poiResolver'
@@ -19,10 +20,14 @@ type NarrateRequest = {
   lon: number
 }
 
+const REQUIRED_PLACES_TO_VISIT = 3
+
 const TIMEOUTS = {
   geoMs: 6_000,
   poisMs: 12_000,
-  llmMs: 120_000,
+  // The Hetzner-hosted LLM can be slow, especially on cold starts or retries.
+  // Keep this below maxDuration after allowing ~20–30s for geo/POI work and overhead.
+  llmMs: 150_000,
   keepAliveMs: 5_000,
 }
 
@@ -56,7 +61,7 @@ class StepTimeoutError extends Error {
   }
 }
 
-// validate entire request payload
+// Validate the entire request payload so TypeScript narrows both lat and lon.
 function isValidNarrateRequest(payload: Partial<NarrateRequest>): payload is NarrateRequest {
   const { lat, lon } = payload
 
@@ -88,12 +93,11 @@ function errorDetails(error: unknown) {
 }
 
 /**
- * Gives each external step a hard deadline.
+ * Runs an async step with a hard deadline and an AbortSignal.
  *
- * This prevents the route from waiting forever, and supports
- * cancelation of the underlying request.
- * TODO: reverseGeocode/getPoisSafe/generateNarration
- * pass an AbortSignal through to their internal fetch calls.
+ * The timeout rejects the wrapper promise even if the underlying task does not
+ * yet honour AbortSignal. If the task does pass the signal into fetch(), the
+ * upstream request is also cancelled rather than continuing in the background.
  */
 async function withAbortableTimeout<T>(
   step: string,
@@ -102,26 +106,20 @@ async function withAbortableTimeout<T>(
 ): Promise<T> {
   const controller = new AbortController()
 
-  const timer = setTimeout(() => {
-    controller.abort(new StepTimeoutError(step, timeoutMs))
-  }, timeoutMs)
+  let timer: ReturnType<typeof setTimeout> | undefined
+
+  const timeoutPromise = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => {
+      const error = new StepTimeoutError(step, timeoutMs)
+      controller.abort(error)
+      reject(error)
+    }, timeoutMs)
+  })
 
   try {
-    return await task(controller.signal)
-  } catch (error) {
-    if (controller.signal.aborted) {
-      const reason = controller.signal.reason
-
-      if (reason instanceof Error) {
-        throw reason
-      }
-
-      throw new StepTimeoutError(step, timeoutMs)
-    }
-
-    throw error
+    return await Promise.race([task(controller.signal), timeoutPromise])
   } finally {
-    clearTimeout(timer)
+    if (timer) clearTimeout(timer)
   }
 }
 
@@ -225,6 +223,7 @@ export async function POST(req: Request) {
 
   const { lat, lon } = payload
   const point = { lat, lon }
+
   /**
    * Return the stream immediately.
    * All slow work now happens inside the stream, so the client gets an early
@@ -289,43 +288,88 @@ export async function POST(req: Request) {
         /**
          * Step 1: resolve geo + POIs independently.
          *
-         * In the old code, Promise.all meant one hung dependency blocked the whole route.
-         * Here, POI failure degrades to empty POIs, and geo failure degrades to coordinates.
+         * Promise.all is still fine because each resolver is wrapped in its own
+         * timeout and fallback. One failed resolver no longer blocks the whole route.
          */
         debug('api/narrate', 'before geo/pois', { traceId })
+
+        const resolverWarnings: string[] = []
+        const resolverErrors: string[] = []
 
         const geoPromise = withAbortableTimeout('reverseGeocode', TIMEOUTS.geoMs, () =>
           reverseGeocode(point),
         ).catch((error) => {
+          const message = error instanceof Error ? error.message : String(error)
+
+          resolverWarnings.push('Reverse geocode failed; using coordinates only.')
+          resolverErrors.push(`reverseGeocode: ${message}`)
+
           log('warn', 'reverseGeocode failed; using fallback geo', errorDetails(error))
+
           return fallbackGeo(point)
         })
 
         const poisPromise = withAbortableTimeout('getPoisSafe', TIMEOUTS.poisMs, () =>
           getPoisSafe(point),
         ).catch((error) => {
-          log('warn', 'getPoisSafe failed; using empty POI fallback', errorDetails(error))
           const message = error instanceof Error ? error.message : String(error)
+
+          resolverWarnings.push('POI lookup failed; continuing without nearby places.')
+          resolverErrors.push(`getPoisSafe: ${message}`)
+
+          log('warn', 'getPoisSafe failed; using empty POI fallback', errorDetails(error))
+
           return emptyPois(message)
         })
 
-        const [{ geo }, { pois }] = await Promise.all([geoPromise, poisPromise])
+        const [geoResult, poiResult] = await Promise.all([geoPromise, poisPromise])
 
         if (req.signal.aborted) return
 
+        const { geo } = geoResult
+        const { pois, cacheHit: poiCacheHit } = poiResult
+
         debug('api/narrate', 'after geo/pois', {
           traceId,
+          geoLabel: geo.label,
+          geoContext: geo.context,
+          poiCacheHit,
           attractions: pois.attractions.length,
           food: pois.food.length,
-          warnings: pois.warnings ?? [],
+          warnings: [...resolverWarnings, ...(pois.warnings ?? [])],
+          errors: [...resolverErrors, ...(pois.errors ?? [])],
         })
 
         const selectedAttractions = pickDiverseAttractions(pois.attractions)
         const selectedEateries = pickDiverseFood(pois.food)
 
+        const hasResolvedGeo = geo.context !== 'Coordinates only'
+        const hasAnyPois = pois.attractions.length > 0 || pois.food.length > 0
+        const hasSelectedPois = selectedAttractions.length > 0 || selectedEateries.length > 0
+
+        const warnings = [...resolverWarnings, ...(pois.warnings ?? [])]
+        const errors = [...resolverErrors, ...(pois.errors ?? [])]
+
+        debug('api/narrate', 'data quality', {
+          traceId,
+          hasResolvedGeo,
+          hasAnyPois,
+          hasSelectedPois,
+          geoLabel: geo.label,
+          geoContext: geo.context,
+          poiCacheHit,
+          attractions: pois.attractions.length,
+          food: pois.food.length,
+          selectedAttractions: selectedAttractions.length,
+          selectedEateries: selectedEateries.length,
+          warnings,
+          errors,
+        })
+
         /**
-         * Send metadata as soon as it is available.
-         * This preserves your existing META: payload style.
+         * Send metadata as soon as resolver work has completed.
+         * This preserves your existing META: payload style while exposing enough
+         * debug information to identify geo/POI failures from the client stream.
          */
         send(
           `META:${JSON.stringify({
@@ -346,15 +390,40 @@ export async function POST(req: Request) {
               geo.country,
             ].filter(Boolean),
             curatedPOIs: { selectedEateries, selectedAttractions },
-            warnings: pois.warnings ?? [],
+            warnings,
+            debug: {
+              geoResolved: hasResolvedGeo,
+              poiCacheHit,
+              poiCounts: {
+                attractions: pois.attractions.length,
+                food: pois.food.length,
+                selectedAttractions: selectedAttractions.length,
+                selectedEateries: selectedEateries.length,
+              },
+              resolverErrors: errors,
+            },
           })}`,
         )
+
+        /**
+         * If both resolvers failed/degraded, do not send weak empty data to the LLM.
+         * This makes it clear that the failure is in the location-data layer rather
+         * than the narration/model layer.
+         */
+        if (!hasResolvedGeo && !hasAnyPois) {
+          send(
+            `I could not resolve this location or find nearby places. This looks like a location-data issue rather than a narration issue. Please try again shortly. Trace ID: ${traceId}`,
+          )
+          send('END')
+          close()
+          return
+        }
 
         const prompt = buildStructuredPrompt({
           geo,
           attractions: selectedAttractions,
           food: selectedEateries,
-          requiredPlacesToVisit: 3,
+          requiredPlacesToVisit: REQUIRED_PLACES_TO_VISIT,
         })
 
         debug('api/narrate', 'structured prompt length', {
@@ -367,8 +436,7 @@ export async function POST(req: Request) {
           ...selectedEateries.map((p) => p.name),
         ])
 
-        // const hasSelectedPois = selectedAttractions.length > 0 || selectedEateries.length > 0
-        const hasEnoughSelectedPois = allowedNames.size >= 3
+        const hasEnoughSelectedPois = allowedNames.size >= REQUIRED_PLACES_TO_VISIT
 
         debug('api/narrate', 'validation mode', {
           traceId,
@@ -379,30 +447,33 @@ export async function POST(req: Request) {
           totalFood: pois.food.length,
         })
 
-        /**
-         * Step 2: LLM generation with its own deadline.
-         *
-         * The old maxRetries: 3 + retryDelayMs: 1000 could silently make a slow
-         * request much slower. Keep retries modest and put the whole step behind
-         * a route-level timeout.
-         */
-        debug('api/narrate', 'before generateNarration', { traceId })
         debug('api/narrate', 'selected POI counts', {
+          traceId,
           selectedAttractions: selectedAttractions.length,
           selectedEateries: selectedEateries.length,
           allowedNamesCount: allowedNames.size,
           allowedNames: [...allowedNames],
         })
+
+        /**
+         * Step 2: LLM generation with its own deadline.
+         *
+         * The LLM client should pass this AbortSignal into its internal fetch(), so
+         * a timed-out generation does not keep running after the route has failed.
+         */
+        debug('api/narrate', 'before generateNarration', { traceId })
+
         const llmStartedAt = performance.now()
 
         const narration: NarrationOutput = await withAbortableTimeout(
           'generateNarration',
           TIMEOUTS.llmMs,
-          () =>
+          (signal) =>
             generateNarration(prompt, {
               allowedNames: hasEnoughSelectedPois ? allowedNames : undefined,
               maxRetries: 2,
               retryDelayMs: 500,
+              signal,
             }),
         )
 
@@ -428,14 +499,18 @@ export async function POST(req: Request) {
       } catch (error) {
         log('error', 'stream generation failed', errorDetails(error))
 
-        const errorMsg =
-          error instanceof StepTimeoutError
-            ? `Sorry - ${error.step} took too long for this location. Please try another point.`
-            : error instanceof Error && error.message.toLowerCase().includes('validation')
-              ? 'Could not generate a valid response after retries. Please try another location.'
-              : 'Sorry - task could not be completed for this location. Please try another point.'
+        let errorMsg =
+          'Sorry - task could not be completed for this location. Please try another point.'
 
-        send(errorMsg)
+        if (error instanceof StepTimeoutError) {
+          errorMsg = `Sorry - ${error.step} took too long for this location. Please try again shortly.`
+        } else if (error instanceof Error && error.message.toLowerCase().includes('validation')) {
+          errorMsg = 'The narration model returned an invalid response. Please try again.'
+        } else if (error instanceof Error && error.message.toLowerCase().includes('aborted')) {
+          errorMsg = 'The narration request was cancelled before it completed.'
+        }
+
+        send(`${errorMsg} Trace ID: ${traceId}`)
         send('END')
         close()
       } finally {
