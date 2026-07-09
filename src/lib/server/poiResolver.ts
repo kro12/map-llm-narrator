@@ -18,7 +18,11 @@ const POIS_BUDGET_MS = (() => {
 })()
 
 // Per-query timeout - much shorter than total budget
-const PER_QUERY_TIMEOUT_MS = 8000 // 8 seconds per query max
+const PER_QUERY_TIMEOUT_MS = (() => {
+  const raw = process.env.POIS_PER_QUERY_TIMEOUT_MS
+  const n = raw ? Number(raw) : NaN
+  return Number.isFinite(n) ? n : 8_000
+})()
 
 /**
  * Safe wrapper: never throw POI errors to the caller.

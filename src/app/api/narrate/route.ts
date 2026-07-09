@@ -24,9 +24,12 @@ const REQUIRED_PLACES_TO_VISIT = 3
 
 const TIMEOUTS = {
   geoMs: 6_000,
-  poisMs: 12_000,
-  // The Hetzner-hosted LLM can be slow, especially on cold starts or retries.
-  // Keep this below maxDuration after allowing ~20–30s for geo/POI work and overhead.
+  /**
+   * Must be higher than poiResolver's internal POIS_BUDGET_MS.
+   * poiResolver currently allows ~19s for Overpass strategies, so the route
+   * should not abort it at 12s.
+   */
+  poisMs: 25_000,
   llmMs: 150_000,
   keepAliveMs: 5_000,
 }
