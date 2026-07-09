@@ -511,6 +511,13 @@ export async function POST(req: Request) {
         }
 
         send(`${errorMsg} Trace ID: ${traceId}`)
+        if (process.env.NARRATE_DEBUG_CLIENT === '1') {
+          const internalError =
+            error instanceof Error ? `${error.name}: ${error.message}` : String(error)
+
+          send(`DEBUG:${internalError}`)
+        }
+
         send('END')
         close()
       } finally {
