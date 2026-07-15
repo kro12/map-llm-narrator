@@ -1,36 +1,34 @@
+import type { MutableRefObject } from 'react'
 import maplibregl from 'maplibre-gl'
 
 /**
- * Set marker position with animation. Creates marker on first call.
+ * Set marker position. Creates the marker on first call.
  */
 export function setMarker(
-  markerRef: React.MutableRefObject<maplibregl.Marker | null>,
+  markerRef: MutableRefObject<maplibregl.Marker | null>,
   map: maplibregl.Map,
   lng: number,
   lat: number,
 ): void {
-  if (!markerRef.current) {
-    // FIRST CLICK - Create marker, defer adding to map
-    const el = document.createElement('div')
-    el.className = 'ml-marker'
-
-    markerRef.current = new maplibregl.Marker({ element: el, anchor: 'bottom' }).setLngLat([
-      lng,
-      lat,
-    ])
-
-    // Add to map on next frame to avoid flash
-    requestAnimationFrame(() => {
-      if (markerRef.current) {
-        markerRef.current.addTo(map)
-      }
-    })
-
+  if (markerRef.current) {
+    markerRef.current.setLngLat([lng, lat])
     return
   }
 
-  // SUBSEQUENT CLICKS - Just update position, no animation
-  markerRef.current.setLngLat([lng, lat])
+  const element = document.createElement('div')
+  element.className = 'ml-location-marker'
+  element.setAttribute('aria-label', 'Selected location')
+
+  const core = document.createElement('span')
+  core.className = 'ml-location-marker__core'
+  element.appendChild(core)
+
+  markerRef.current = new maplibregl.Marker({
+    element,
+    anchor: 'center',
+  })
+    .setLngLat([lng, lat])
+    .addTo(map)
 }
 
 /**

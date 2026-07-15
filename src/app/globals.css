@@ -3,6 +3,18 @@
 :root {
   --background: #ffffff;
   --foreground: #0f172a; /* slate-900 */
+  --location-accent: #dc4c4c;
+  --location-accent-rgb: 220, 76, 76;
+
+  --map-accent: #008bd5;
+  --map-accent-rgb: 0, 139, 213;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --background: #0a0a0a;
+    --foreground: #ededed;
+  }
 }
 
 /* Ensure full-height layout for map-first UI */
@@ -16,50 +28,101 @@ body {
   color: var(--foreground);
 }
 
-/* ---------- Map marker polish ---------- */
-.ml-marker {
-  width: 22px;
-  height: 22px;
-  border-radius: 9999px;
-  background: #0f172a;
-  border: 2px solid white;
-  box-shadow: 0 8px 18px rgba(0, 0, 0, 0.25);
-  transform-origin: center;
+/* ---------- Selected map location ---------- */
+
+.ml-location-marker {
+  position: relative;
+  width: 58px;
+  height: 58px;
+  overflow: visible;
+  pointer-events: none;
 }
 
-.ml-marker-pop {
-  animation: ml-pop 220ms ease-out;
+/* Slow, repeating pulse around the selected location */
+.ml-location-marker::before {
+  position: absolute;
+  inset: 2px;
+  content: '';
+  background: rgba(var(--location-accent-rgb), 0.3);
+  border-radius: 50%;
+  animation: ml-location-pulse 1.6s ease-out infinite;
 }
 
-@keyframes ml-pop {
-  0% {
+/* Solid central location point */
+.ml-location-marker__core {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  z-index: 1;
+  display: block;
+  box-sizing: border-box;
+  width: 28px;
+  height: 28px;
+  background: var(--location-accent);
+  border: 4px solid #ffffff;
+  border-radius: 50%;
+  box-shadow:
+    0 0 0 1px rgba(15, 23, 42, 0.2),
+    0 0 12px rgba(var(--location-accent-rgb), 0.4),
+    0 6px 16px rgba(15, 23, 42, 0.3);
+  transform: translate(-50%, -50%);
+}
+
+/* Brief ripple when the marker first appears */
+.ml-location-marker__core::after {
+  position: absolute;
+  inset: -4px;
+  content: '';
+  border: 3px solid rgba(var(--location-accent-rgb), 0.45);
+  border-radius: inherit;
+  opacity: 0;
+  animation: ml-location-ring-pop 320ms ease-out both;
+}
+
+@keyframes ml-location-ring-pop {
+  from {
+    opacity: 0.75;
     transform: scale(0.65);
-    opacity: 0.7;
   }
-  100% {
-    transform: scale(1);
-    opacity: 1;
+
+  to {
+    opacity: 0;
+    transform: scale(1.35);
   }
 }
 
-/* ---------- MapLibre popup (compact confirmation card) ---------- */
+@keyframes ml-location-pulse {
+  0% {
+    opacity: 0.75;
+    transform: scale(0.35);
+  }
+
+  75%,
+  100% {
+    opacity: 0;
+    transform: scale(1);
+  }
+}
+
+/* ---------- MapLibre popup ---------- */
+
 .maplibregl-popup-content {
-  padding: 12px 12px 10px; /* +2px top only */
-  border-radius: 12px;
+  max-width: 260px;
+  padding: 12px 12px 10px;
   font-family: inherit;
   color: #0f172a;
-  max-width: 260px;
+  border-radius: 12px;
 }
 
 .maplibregl-popup-close-button {
   top: 6px;
-  right: 8px; /* move right a touch */
+  right: 8px;
   width: 22px;
   height: 22px;
-  border-radius: 8px;
   font-size: 16px;
   line-height: 22px;
   color: #334155;
+  border-radius: 8px;
 }
 
 .maplibregl-popup-close-button:hover {
@@ -70,33 +133,38 @@ body {
   filter: drop-shadow(0 8px 18px rgba(0, 0, 0, 0.18));
 }
 
-/* POI marker drop animation */
+/* ---------- POI marker entrance animation ---------- */
+
 @keyframes poi-marker-drop {
   0% {
     opacity: 0;
     transform: scale(0);
   }
+
   50% {
     opacity: 1;
     transform: scale(1.2);
   }
+
   70% {
     transform: scale(0.9);
   }
+
   100% {
     opacity: 1;
     transform: scale(1);
   }
 }
 
-/* Popover portal (Radix-style) */
+/* ---------- POI popover ---------- */
+
 .poi-popover-portal {
-  background-color: white;
-  border: 1px solid #e5e7eb;
-  border-radius: 8px;
-  padding: 12px 14px;
   min-width: 200px;
   max-width: 280px;
+  padding: 12px 14px;
+  background-color: #ffffff;
+  border: 1px solid #e5e7eb;
+  border-radius: 8px;
   box-shadow:
     0 4px 12px rgba(0, 0, 0, 0.08),
     0 0 1px rgba(0, 0, 0, 0.1);
@@ -106,45 +174,45 @@ body {
   position: absolute;
   bottom: -6px;
   left: 50%;
-  transform: translateX(-50%) rotate(45deg);
   width: 12px;
   height: 12px;
-  background: white;
+  background: #ffffff;
   border-right: 1px solid #e5e7eb;
   border-bottom: 1px solid #e5e7eb;
   filter: drop-shadow(0 -1px 1px rgba(0, 0, 0, 0.05));
+  transform: translateX(-50%) rotate(45deg);
 }
 
 .poi-popover-name {
-  font-weight: 500;
-  font-size: 14px;
-  line-height: 1.4;
   margin-bottom: 6px;
+  font-size: 14px;
+  font-weight: 500;
+  line-height: 1.4;
   color: #18181b;
 }
 
 .poi-popover-category {
+  margin-bottom: 2px;
   font-size: 12px;
   color: #71717a;
   text-transform: capitalize;
-  margin-bottom: 2px;
 }
 
 .poi-popover-distance {
+  margin-bottom: 10px;
   font-size: 12px;
   color: #a1a1aa;
-  margin-bottom: 10px;
 }
 
 .poi-popover-link {
   display: inline-flex;
   align-items: center;
   padding: 6px 10px;
-  background-color: white;
-  color: #18181b;
   font-size: 12px;
   font-weight: 500;
+  color: #18181b;
   text-decoration: none;
+  background-color: #ffffff;
   border: 1px solid #e5e7eb;
   border-radius: 6px;
   transition:
@@ -157,21 +225,23 @@ body {
   border-color: #d1d5db;
 }
 
-/* Low-key highlight */
+/* ---------- POI references in generated text ---------- */
+
 mark.poi {
-  background: rgba(15, 23, 42, 0.1);
-  color: inherit;
   padding: 0 0.12em;
-  border-radius: 0.25em;
+  color: inherit;
   cursor: crosshair;
+  background: rgba(15, 23, 42, 0.1);
+  border-radius: 0.25em;
   transition: background-color 150ms ease;
 }
 
 mark.poi:hover {
-  background: rgba(37, 99, 235, 0.16);
+  background: rgba(var(--map-accent-rgb), 0.16);
 }
 
-/* POI marker transition */
+/* ---------- Corresponding map-marker highlight ---------- */
+
 .poi-marker-inner {
   transform-origin: center;
   transition:
@@ -179,30 +249,30 @@ mark.poi:hover {
     box-shadow 150ms ease;
 }
 
-/* Highlight the map marker when its POI name is hovered */
+/* Keep the highlighted marker above nearby markers */
 .poi-pop {
   z-index: 10 !important;
 }
 
-/* 0 0 0 7px rgba(235, 192, 37, 0.8), */
+/* Applied when the corresponding POI name is hovered */
 .poi-pop .poi-marker-inner {
-  transform: scale(1.25) !important;
+  transform: scale(1.2) !important;
   box-shadow:
     0 0 0 3px #ffffff,
-    0 0 0 6px rgba(0, 139, 213, 0.55),
-    0 0 14px 8px rgba(0, 139, 213, 0.3),
-    0 8px 20px rgba(15, 23, 42, 0.28) !important;
+    0 0 0 5px rgba(var(--map-accent-rgb), 0.5),
+    0 0 10px 6px rgba(var(--map-accent-rgb), 0.22),
+    0 8px 20px rgba(15, 23, 42, 0.25) !important;
 }
+
+/* ---------- Reduced motion ---------- */
 
 @media (prefers-reduced-motion: reduce) {
+  .ml-location-marker::before,
+  .ml-location-marker__core::after {
+    animation: none;
+  }
+
   .poi-marker-inner {
     transition: none;
-  }
-}
-
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
   }
 }
