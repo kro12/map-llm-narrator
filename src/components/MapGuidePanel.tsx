@@ -24,12 +24,15 @@ export function MapGuidePanel(props: {
   const busy = status === 'streaming'
   const canGenerate = zoomOk && !!selected && !busy
   const generating = status === 'streaming'
+  const showLatencyNote = zoomOk && selected
 
-  const hint = !zoomOk
-    ? `Zoom in to level ${MIN_ZOOM_TO_ENABLE}+ to enable the Map Guide.`
-    : !selected
-      ? 'Click a point on the map to place a marker and enable Generate.'
-      : 'Ready - click Generate to create your guide.'
+  const hint = generating
+    ? 'Generating your guide…'
+    : !zoomOk
+      ? `Zoom in to level ${MIN_ZOOM_TO_ENABLE}+ to enable the Map Guide.`
+      : !selected
+        ? 'Click a point on the map to place a marker and enable Generate.'
+        : 'Ready - click Generate to create your guide.'
 
   return (
     <div
@@ -44,7 +47,19 @@ export function MapGuidePanel(props: {
         <div className="text-[11px] text-slate-500">Zoom: {zoom.toFixed(1)}</div>
       </div>
 
-      <div className="text-xs text-slate-600">{hint}</div>
+      <div className="text-xs text-slate-600" aria-live="polite">
+        {hint}
+      </div>
+
+      {showLatencyNote ? (
+        <div
+          role="note"
+          className="rounded-md border border-sky-200 bg-sky-50 px-2.5 py-2 text-[11px] leading-snug text-sky-900"
+        >
+          <span className="font-medium">Demo note:</span> This demo uses a self-hosted CPU model, so
+          generation may take 1–2 minutes.
+        </div>
+      ) : null}
 
       <Stack direction="row" spacing={1} sx={{ pt: 0.5 }}>
         <Button variant="outlined" size="small" onClick={onResetView}>

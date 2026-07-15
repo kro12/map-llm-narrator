@@ -9,10 +9,18 @@
 <p align="center">
   <img src="https://github.com/user-attachments/assets/13801969-99db-4b9b-8dc1-6f0e4e660749"
        alt="Map LLM Guide Screenshot"
-       width="1100" />
+       width="1100"
+  />
 </p>
 
 <br/>
+
+> [!NOTE]
+> **Public demo performance**
+>
+> The demo runs a self-hosted Qwen model on a small CPU-only VM, so generation may take 1–2 minutes. It also relies on public map-data services, which may occasionally be slow, rate-limited or unavailable.
+>
+> The project focuses on self-hosted inference, structured validation, resilient orchestration and a responsive UI; a production deployment would typically use GPU-backed or managed inference.
 
 <p align="center">
   <a href="https://map-llm-narrator.vercel.app/">
