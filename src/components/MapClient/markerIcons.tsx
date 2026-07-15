@@ -187,7 +187,7 @@ export const MarkerSvgs = {
 } as const
 
 export function getMarkerColor(poi: Poi): string {
-  // Matches your MUI slate theme: primary/main ~ #0f172a
+  // Matches MUI slate theme: primary/main ~ #0f172a
   if (poi.category === 'food') return '#0f172a' // slate-900
   return '#334155' // slate-700
 }

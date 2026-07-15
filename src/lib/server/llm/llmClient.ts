@@ -27,7 +27,7 @@ type LlmStreamLine = {
  * keepAlive: model unload timer ('5m', '30s', '0' = immediate)
  * topP: nucleus sampling - lower=more conservative/focused. Higher=more adventurous/diverse [0.0-1.0]
  * repeatPenalty: discourages repetition of phrases/words (>1.0) [1.0-2.0]
- * format: 'json' forces JSON-mode structured output (your schema validation)
+ * format: 'json' forces JSON-mode structured output (schema validation)
  * signal: support passing AbortSignal
  */
 type LlmOptions = {

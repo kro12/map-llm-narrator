@@ -5,13 +5,6 @@
   --foreground: #0f172a; /* slate-900 */
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
-}
-
 /* Ensure full-height layout for map-first UI */
 html,
 body {
@@ -154,7 +147,9 @@ body {
   text-decoration: none;
   border: 1px solid #e5e7eb;
   border-radius: 6px;
-  transition: all 0.15s ease;
+  transition:
+    background-color 150ms ease,
+    border-color 150ms ease;
 }
 
 .poi-popover-link:hover {
@@ -162,23 +157,52 @@ body {
   border-color: #d1d5db;
 }
 
-/* Low-key highlight that fits your grey/blue theme */
+/* Low-key highlight */
 mark.poi {
-  background: rgba(15, 23, 42, 0.1); /* subtle slate tint */
+  background: rgba(15, 23, 42, 0.1);
   color: inherit;
   padding: 0 0.12em;
   border-radius: 0.25em;
+  cursor: crosshair;
+  transition: background-color 150ms ease;
 }
 
-/* Make POI marker hover "pop" feel snappy */
+mark.poi:hover {
+  background: rgba(37, 99, 235, 0.16);
+}
+
+/* POI marker transition */
 .poi-marker-inner {
+  transform-origin: center;
   transition:
-    transform 120ms ease,
-    box-shadow 120ms ease;
+    transform 150ms ease,
+    box-shadow 150ms ease;
 }
 
-/* Pop the POI marker when hovered in text (overrides inline styles) */
+/* Highlight the map marker when its POI name is hovered */
+.poi-pop {
+  z-index: 10 !important;
+}
+
+/* 0 0 0 7px rgba(235, 192, 37, 0.8), */
 .poi-pop .poi-marker-inner {
-  transform: scale(1.18) !important;
-  box-shadow: 0 6px 16px rgba(0, 0, 0, 0.18) !important;
+  transform: scale(1.25) !important;
+  box-shadow:
+    0 0 0 3px #ffffff,
+    0 0 0 6px rgba(0, 139, 213, 0.55),
+    0 0 14px 8px rgba(0, 139, 213, 0.3),
+    0 8px 20px rgba(15, 23, 42, 0.28) !important;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .poi-marker-inner {
+    transition: none;
+  }
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --background: #0a0a0a;
+    --foreground: #ededed;
+  }
 }

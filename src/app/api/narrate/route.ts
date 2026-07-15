@@ -371,7 +371,7 @@ export async function POST(req: Request) {
 
         /**
          * Send metadata as soon as resolver work has completed.
-         * This preserves your existing META: payload style while exposing enough
+         * Preserves the existing META: payload style while exposing enough
          * debug information to identify geo/POI failures from the client stream.
          */
         send(
